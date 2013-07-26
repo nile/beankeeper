@@ -103,8 +103,8 @@ public class TransactionTrackerImpl implements TransactionTracker
                nodeManager.getServerId());
          if ( logger.isDebugEnabled() )
             logger.debug("transaction created: "+transaction);
-         if ( logger.isTraceEnabled() )
-            logger.trace("transaction allocation trace: "+getStackTrace(transaction.getAllocateTrace()));
+         if ( logger.isDebugEnabled() )
+            logger.debug("transaction allocation trace: "+getStackTrace(transaction.getAllocateTrace()));
          transaction.setConnection(database.getConnectionSource().getConnection());
          list.add(transaction);
          synchronized ( allTransactions )

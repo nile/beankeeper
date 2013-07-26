@@ -488,8 +488,8 @@ public class StoreServiceImpl implements StoreService
             stats.add(transaction.getStats());
             stats.substract(startStats);
             operationsLogger.debug("operation save: "+obj+", "+stats);
-            if ( operationsLogger.isTraceEnabled() )
-               operationsLogger.trace("previous operation trace:",new Exception("trace"));
+            if ( operationsLogger.isDebugEnabled() )
+               operationsLogger.debug("previous operation trace:",new Exception("trace"));
          }
          // {{{ Notify dispatcher of events occured during save
          for ( int i=0; i<events.size(); i++ )
@@ -579,8 +579,8 @@ public class StoreServiceImpl implements StoreService
             stats.add(transaction.getStats());
             stats.substract(startStats);
             operationsLogger.debug("operation remove: "+obj+" (id: "+id+"), "+stats);
-            if ( operationsLogger.isTraceEnabled() )
-               operationsLogger.trace("previous operation trace:",new Exception("trace"));
+            if ( operationsLogger.isDebugEnabled() )
+               operationsLogger.debug("previous operation trace:",new Exception("trace"));
          }
       } catch ( StoreException e ) {
          transaction.markRollbackOnly();

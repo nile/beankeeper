@@ -270,8 +270,8 @@ public abstract class DatabaseBase implements PersistenceEventListener, Database
          for ( Map.Entry<String,Object> rawResultEntry : rawResultMapEntries )
             resultMap.put(reverseName(rawResultEntry.getKey()),rawResultEntry.getValue());
          resultList.add(resultMap);
-         if ( logger.isTraceEnabled() )
-            logger.trace("transforming result: "+rawResultMap+", into: "+resultMap);
+         if ( logger.isDebugEnabled() )
+            logger.debug("transforming result: "+rawResultMap+", into: "+resultMap);
       }
       result.setResult(resultList);
       // Return result transformed

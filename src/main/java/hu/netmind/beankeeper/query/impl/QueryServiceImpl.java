@@ -582,8 +582,8 @@ public class QueryServiceImpl implements QueryService, PersistenceEventListener
             stats.add(transaction.getStats());
             stats.substract(startStats);
             operationsLogger.debug("operation find: "+stmt.getOriginalStatement()+", "+stats);
-            if ( operationsLogger.isTraceEnabled() )
-               operationsLogger.trace("previous operation trace:",new Exception("trace"));
+            if ( operationsLogger.isDebugEnabled() )
+               operationsLogger.debug("previous operation trace:",new Exception("trace"));
          }
          // Return result
          logger.debug("find returning result list");
