@@ -69,7 +69,7 @@ public class HSQLDatabaseImpl extends GenericDatabase implements Database
       switch ( sqltype )
       {
          case Types.VARCHAR:
-            return "varchar";
+            return "varchar(1024)";
          case Types.BLOB:
          case Types.BINARY:
          case Types.VARBINARY:
