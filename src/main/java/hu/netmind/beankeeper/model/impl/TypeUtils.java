@@ -28,14 +28,17 @@ public class TypeUtils
    /**
     * Convert a value of a type to a given target type.
     */
-   public static Object getTypeValue(Object value, Class attrClass)
+   @SuppressWarnings("unchecked")
+public static Object getTypeValue(Object value, Class attrClass)
    {
       Class valueClass = null;
       // Check if value is null, note that primitive types will
       // have a sane default if confronted with null
       if ( value == null )
       {
-         if ( attrClass.equals(byte.class) )
+    	 if( attrClass.isEnum()) {
+    		 return null;
+    	 }else if ( attrClass.equals(byte.class) )
             return new Byte((byte) 0);
          else if ( attrClass.equals(double.class) )
             return new Double(0);
@@ -55,7 +58,9 @@ public class TypeUtils
       }
       valueClass = value.getClass();
       // Handle primitive types with exceptional circumstances
-      if ( (attrClass.equals(Character.class)) || (attrClass.equals(char.class)) 
+      if(attrClass.isEnum() && valueClass.equals(String.class)) {
+    	  return Enum.valueOf(attrClass, (String) value);
+      }else if ( (attrClass.equals(Character.class)) || (attrClass.equals(char.class)) 
             && (valueClass.equals(String.class)) )
       {
          if ( ((String) value).length() > 0 )

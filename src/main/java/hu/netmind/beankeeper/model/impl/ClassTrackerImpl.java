@@ -101,7 +101,9 @@ public class ClassTrackerImpl implements ClassTracker, PersistenceEventListener
    {
       if ( clazz == null )
          return false;
-      return (clazz.equals(int.class)) || 
+      return
+    		(clazz.isEnum()) || 
+    		(clazz.equals(int.class)) || 
             (clazz.equals(short.class)) || 
             (clazz.equals(byte.class)) || 
             (clazz.equals(long.class)) || 

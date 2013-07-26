@@ -1290,6 +1290,8 @@ public class GenericDatabase extends DatabaseBase implements Database
    {
       if ( (value!=null) && (value instanceof Date) )
          return new Timestamp(((Date) value).getTime());
+      if( (value!=null) && value.getClass().isEnum())
+    	  return ((Enum)value).name();
       return value;
    }
   
@@ -1370,6 +1372,8 @@ public class GenericDatabase extends DatabaseBase implements Database
       Class charClass = char.class;
       if ( (charClass.equals(type)) || (Character.class.equals(type)) )
          return Types.CHAR;
+      if (type.isEnum())
+    	  return Types.VARCHAR;
       throw new StoreException("type: "+type+" is not an allowed primitive type.");
    }
 
