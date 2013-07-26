@@ -1,0 +1,581 @@
+/**
+ * Copyright (C) 2009 NetMind Consulting Bt.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 3 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+options
+{
+   STATIC = false;
+   UNICODE_INPUT = true;
+   IGNORE_CASE = true;
+   // SUPPORT_CLASS_VISIBILITY_PUBLIC = false;
+}
+
+PARSER_BEGIN(QueryParser)
+
+package hu.netmind.beankeeper.parser;
+
+import java.io.StringReader;
+import java.util.*;
+import hu.netmind.beankeeper.object.Identifier;
+import org.apache.log4j.Logger;
+
+/**
+ * This is the JavaCC parser class of the library's
+ * query language.
+ */
+public class QueryParser
+{
+   private static Logger logger = Logger.getLogger(QueryParser.class);
+   private WhereResolver resolver;
+   private Object[] parameters;
+   private int currentParameter = 0;
+   private TimeControl timeControl;
+   private String query;
+   private Set modifiedTables;
+
+   /**
+    * Construct a parser to parse the given query with the supplied
+    * parameters;
+    * @param query The query to parse.
+    * @param parameters The object parameters of the query, which are marked in the
+    * query as placeholders.
+    * @param resolver The symbolic resolver to use.
+    * @param timeControl The time control this query should use. This is the exact point
+    * in time this query should get results from.
+    * @param modifiedTables The tables which were modified in this transaction. This is used
+    * to correct the timecontrol.
+    */
+   public QueryParser(String query, Object[] parameters, 
+      WhereResolver resolver, TimeControl timeControl, Set modifiedTables)
+   {
+      this(new StringReader(query));
+      this.query=query;
+      this.parameters=parameters;
+      this.resolver=resolver;
+      this.timeControl=timeControl;
+      this.modifiedTables=modifiedTables;
+   }
+
+   /**
+    * Get the next parameter from given objects.
+    * @return The next parameter. If there are no more parameters, this is null.
+    */
+   private Object nextParameter()
+   {
+      if ( (parameters==null) || (currentParameter>=parameters.length) )
+         return null;
+      return parameters[currentParameter++];
+   }
+}
+
+PARSER_END(QueryParser)
+
+<*> SKIP:
+{
+   " " | "\t"| "\r" | "\n" | "\f"
+}
+
+// Required first word
+<DEFAULT> TOKEN:
+{
+   <FIND: "find"> : SELECTCLAUSE |
+   <VIEW: "view"> : SELECTCLAUSE
+}
+
+// Keywords that switch states
+<SELECTCLAUSE,WHERECLAUSE,ORDERBYCLAUSE> TOKEN:
+{
+   <AT: "at"> : ATCLAUSE |
+   <ORDER: "order"> : ORDERBYCLAUSE |
+   <WHERE: "where"> : WHERECLAUSE
+}
+
+// Operators for where clause
+<WHERECLAUSE> TOKEN:
+{
+   <OPERATOR: "="|"!="|"<"|"<="|">="|">"|"<>"|"like"|"ilike"|"contains"|"in" > |
+   <LOGICAL_OPERATOR: "or" | "and" > |
+   <NOT: "not" > |
+   <IS: "is"> |
+   <NULL: "null">
+}
+
+// Primitive types
+<WHERECLAUSE,ATCLAUSE> TOKEN:
+{
+   <STRING: "'" (~["'"])+ "'"> |
+   <NUMBER: (["0"-"9"])+> |
+   <BOOLEAN: "true" | "false" > |
+   <OBJECT: "?"> |
+   <NOW: "now">
+}
+
+// Tokens just for order by
+<ORDERBYCLAUSE> TOKEN:
+{
+   <BY: "by"> |
+   <ASCENDING: "asc" ( "ending" )?> |
+   <DESCENDING: "desc" ( "ending" )?>
+}
+
+// Tokens that match attributes
+<SELECTCLAUSE,WHERECLAUSE,ORDERBYCLAUSE> TOKEN:
+{
+   <LPAREN: "("> |
+   <RPAREN: ")"> |
+   <LBRACKET: "["> |
+   <RBRACKET: "]"> |
+   <DOT: "."> |
+   <COMMA: ","> |
+   <IDENTIFIER: (["a"-"z","A"-"Z","0"-"9","_"])+>
+}
+
+/**
+ * The main parser method. Returns the query list that is generated
+ * from the string query.
+ */
+QueryStatementList query():
+{
+   QueryStatement stmt = null;
+   TimeControl version = null;
+}
+{
+   {
+      logger.debug("parsing query: "+query);
+   }
+   ( 
+     ( stmt = findStatement() | stmt = viewStatement() )
+     ( version = versionSpecifier() )?
+   )
+   <EOF>
+   { 
+      // Add versioning
+      if ( version != null )
+         stmt.setTimeControl(version);
+      else
+         stmt.setTimeControl(timeControl);
+      // Determine whether given transaction has common
+      // tables with statement or not. If it has, then
+      // current time will be applied differently.
+      resolver.fixTimeControl(stmt, modifiedTables);
+      // Generate a list of queries from the statement
+      // received.
+      return resolver.generate(stmt);
+   }
+}
+
+/**
+ * This is the "find" statement. A single statement is returned, which
+ * may contain non-storable elements. The statement's target is one
+ * full object, and some optional attributes.
+ */
+QueryStatement findStatement():
+{
+   QueryStatement result = null;
+   TableTerm mainTerm = null;
+   Expression expr = null;
+   List references = null;
+   List orderBys = null;
+}
+{
+   <FIND> mainTerm = tableTerm(true) 
+   ( <COMMA> references = references() )?
+   ( <WHERE> expr = expression() )?
+   ( <ORDER> <BY> orderBys = orderBys() )?
+   {
+      result = new QueryStatement(mainTerm,expr,orderBys); 
+      if ( references != null )
+         result.getSelectTerms().addAll(references);
+      result.setMode(QueryStatement.MODE_FIND);
+      return result;
+   }
+}
+
+/**
+ * This is the "view" statement. A single statement is returned, which
+ * may contain non-storable elements. The target of this statement is
+ * always one or more attributes without unmarshalling.
+ */
+QueryStatement viewStatement():
+{
+   QueryStatement result = null;
+   Expression expr = null;
+   List references = null;
+   List orderBys = null;
+}
+{
+   <VIEW> references = references()
+   ( <WHERE> expr = expression() )?
+   ( <ORDER> <BY> orderBys = orderBys() )?
+   {
+      result = new QueryStatement(references,expr,orderBys); 
+      result.setMode(QueryStatement.MODE_VIEW);
+      return result;
+   }
+}
+
+/**
+ * Parses and returns the order by list of attributes.
+ */
+List orderBys():
+{
+   List result = new ArrayList();
+   ReferenceTerm refterm;
+   int direction = OrderBy.ASCENDING;
+}
+{
+   refterm = referenceTerm()
+   (direction = direction())?
+   {
+      result.add(new OrderBy(refterm,direction));
+   }
+   (
+      <COMMA>
+      refterm = referenceTerm()
+      (direction = direction())?
+      {
+         result.add(new OrderBy(refterm,direction));
+      }
+   )*
+   {
+      return result;
+   }
+}
+
+/**
+ * Helper method to determine the direction of sorting. Parses
+ * the ascending or descending keyword and returns the 
+ * appropriate order by constant.
+ */
+int direction():
+{
+}
+{
+   <ASCENDING>
+   {
+      return OrderBy.ASCENDING;
+   }
+ | <DESCENDING>
+   {
+      return OrderBy.DESCENDING;
+   }
+}
+
+/**
+ * Method parses and returns the where clause expression.
+ */
+Expression expression():
+{
+   Expression result = null;;
+   Expression expr1 = null;
+   Expression expr2 = null;
+   Token op = null;
+}
+{
+   (
+      <LPAREN> result=expression() <RPAREN>
+      {
+         result.setMarkedBlock(true);
+      }
+    | op=<NOT> expr1=expression()
+      {
+         if ( expr1.isMarkedBlock() )
+         {
+            result = new Expression();
+            result.add(op.image);
+            result.add(expr1);
+         } else {
+            result = expr1;
+            result.add(0,op.image);
+         }
+      }
+    | result = atomicExpression()
+   )
+   ( LOOKAHEAD(1) op=<LOGICAL_OPERATOR> expr2=expression()
+      {
+         // Right-recursion part
+         expr1 = result;
+         if ( expr1.isMarkedBlock() && expr2.isMarkedBlock() )
+         {
+            result = new Expression();
+            result.add(expr1);
+            result.add(op.image);
+            result.add(expr2);
+         } else if ( (! expr1.isMarkedBlock()) && (! expr2.isMarkedBlock()) ) {
+            expr1.add(op.image);
+            expr1.addAll(expr2);
+            result = expr1;
+         } else if ( (expr1.isMarkedBlock()) && (! expr2.isMarkedBlock()) ) {
+            expr2.add(0,op.image);
+            expr2.add(0,expr1);
+            result = expr2;
+         } else if ( (! expr1.isMarkedBlock()) && (expr2.isMarkedBlock()) ) {
+            expr1.add(op.image);
+            expr1.add(expr2);
+            result = expr1;
+         }
+      }
+   )?
+   {
+      return result;
+   }
+}
+
+/**
+ * Parses and returns an atomic expression. An atomic expression is
+ * an operator with one or two operands.
+ */
+Expression atomicExpression():
+{
+   Object term1 = null;
+   Object term2 = null;
+   Token op = null;
+   String opImage = null;
+}
+{
+   term1 = term() 
+   ( 
+      op = <OPERATOR> term2 = term() 
+      {
+         return resolver.fixAtomicExpressions(term1,term2,op.image);
+      }
+    | opImage = unaryOperator()
+      {
+         Expression result = new Expression();
+         result.add(term1);
+         result.add(opImage);
+         return result;
+      }
+   )
+}
+
+/**
+ * Parses the unary operators present, and returns
+ * a string representation of it.
+ */
+String unaryOperator():
+{
+   Token not = null;
+}
+{
+   <IS> (not=<NOT>)? <NULL>
+   {
+      if ( not == null )
+         return "is null";
+      else
+         return "is not null";
+   }
+ | <NOT> <NULL>
+   {
+      return "is not null";
+   }
+}
+
+/**
+ * Returns a single term. A term is either a constant or
+ * a referenced attribute of some object.
+ */
+Object term():
+{
+   Token t = null;
+   Object term = null;
+}
+{
+   t = <STRING>
+   {
+      // Chop apostrophes
+      String value = t.image;
+      return new ConstantTerm(value.substring(1,value.length()-1));
+   }
+ | t = <NUMBER>
+   {
+      return new ConstantTerm(new Long(t.image));
+   }
+ | t = <NOW>
+   {
+      return new ConstantTerm(new Date());
+   }
+ | t = <BOOLEAN>
+   {
+      return new ConstantTerm(new Boolean(t.image));
+   }
+ | <OBJECT>
+   {
+      Object param = nextParameter();
+      if ( param instanceof Identifier )
+      {
+         ConstantTerm constantTerm = new ConstantTerm( ((Identifier)param).getId() );
+         constantTerm.setId();
+         return constantTerm;
+      } else {
+         return new ConstantTerm(param);
+      }
+   }
+ | term = referenceTerm()
+   {
+      return term;
+   }
+}
+
+/**
+ * References are multiple reference terms.
+ */
+List references():
+{
+   ReferenceTerm refTerm = null;
+   Token t = null;
+   List result = new ArrayList();
+}
+{
+   refTerm = referenceTerm() (t=<IDENTIFIER>)? 
+   {
+      if ( t != null )
+         refTerm.setColumnAlias(t.image);
+      result.add(refTerm);
+   }
+   ( 
+      <COMMA> refTerm = referenceTerm() (t=<IDENTIFIER>)? 
+      {
+         if ( t != null )
+            refTerm.setColumnAlias(t.image);
+         result.add(refTerm);
+      }
+   )*
+   {
+      return result;
+   }
+}
+
+/**
+ * Parses a reference term, which is always a reference to an attribute of an
+ * object.
+ */
+ReferenceTerm referenceTerm():
+{
+   AttributeSpecifier attrSpec = null;
+   ClassSpecifier classSpec = null;
+   Token t = null;
+   List attrs = new ArrayList();
+}
+{
+   classSpec = classSpecifier() 
+   (
+      <DOT> attrSpec = attributeSpecifier()
+      {
+         attrs.add(attrSpec);
+      }
+   )*
+   {
+      return resolver.resolve(classSpec,attrs);
+   }
+}
+
+/**
+ * Parse and prepare the main table.
+ */
+TableTerm tableTerm(boolean selected):
+{
+   ClassSpecifier mainSpec = null;
+}
+{
+   mainSpec = classSpecifier()
+   {
+      return resolver.resolve(mainSpec,selected); 
+   }
+}
+
+/**
+ * Parse and return an attribute.
+ */
+AttributeSpecifier attributeSpecifier():
+{
+   Token name = null;
+   Token subname = null;
+   Token classname = null;
+}
+{
+   name = <IDENTIFIER> (<LBRACKET> subname = <STRING> <RBRACKET>)?
+      (<LPAREN> classname = <IDENTIFIER> <RPAREN> )?
+   {
+      return new AttributeSpecifier(
+         name.image,
+         classname==null? null : classname.image,
+         subname==null? null : subname.image.substring(1,subname.image.length()-1));
+   }
+}
+
+/**
+ * Parse and return a class specification.
+ */
+ClassSpecifier classSpecifier():
+{
+   Token alias = null;
+   Token classToken = null;
+   StringBuffer classname = new StringBuffer();
+}
+{
+   alias = <IDENTIFIER> 
+   (
+      <LPAREN>
+      classToken = <IDENTIFIER> 
+      {
+         classname.append(classToken.image);
+      }
+      (
+         <DOT> classToken = <IDENTIFIER>
+         {
+            classname.append('.');
+            classname.append(classToken.image);
+         }
+      )* 
+      <RPAREN>
+   )?
+   {
+      if ( classname.length() == 0 )
+         return new ClassSpecifier(alias.image,null);
+      else
+         return new ClassSpecifier(classname.toString(),alias.image);
+   }
+}
+
+/**
+ * Get the version specifier. This is the timecontrol of the
+ * query.
+ */
+TimeControl versionSpecifier():
+{
+}
+{
+   <AT>
+   ( 
+      <NOW>
+      {
+         timeControl.setQueryDate(new Date());
+         return timeControl;
+      }
+   |  <OBJECT>
+      {
+         Object value = nextParameter();
+         if ( (value != null) && (value instanceof Date) )
+            timeControl.setQueryDate((Date) value);
+         if ( (value != null) && (value instanceof TimeControl) )
+            return (TimeControl) value;
+         return timeControl;
+      }
+   )
+}
+

@@ -1,0 +1,72 @@
+BeanKeeper
+~~~~~~~~~~
+
+This library is an Object/Relation mapping framework for Java. It
+is designed to be easy to use (no xmls to write, no tables to create,
+no ids to generate, no primary keys to fiddle with, just point it to the 
+database, check the apidoc for 3 basic methods and code away). It supports 
+transactions, has it's own simple query language (very similar to sql), 
+can handle object references, lists, maps, sets, collections.
+
+When to use this framework instead of the bazillion others
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The aim of this Java library is to provide a _simple_ persistence
+(Object/Relation mapping) layer. It's main design goals:
+* Simple things should be easy to do. For example saving/deleting a Java object
+  should be simple. Selecting should also be easy to write.
+* It should not require any kind of generating, or code modification.
+  Generating/copying more than a few lines of code usually
+  indicates bad design.
+* It should not require any interaction with a database on lower level
+  from the developer. As developers, we usually don't like databases
+  which require tweaking settings, installing/creating "tablespaces", adjusting
+  indexes, creating tables, defining rows, creating "instances", etc. Other then
+  performance tuning, why should we care about these things? 
+* Selecting should be a bit easier and more readable than SQL. It also
+  should use objects and not "tables", since we store objects. Also,
+  this may mean the query language has not so many options/capabilities,
+  but that's ok, if they are not needed most of the time.
+
+That said, you can use this library if you are only manipulating objects,
+and do not want to bother setting up complex tables and their interrelations.
+Most often writing web applications requires saving
+simple data structures, and querying in paged, ordered result sets. This
+library does that for example very easily.
+
+Documentation
+~~~~~~~~~~~~~
+
+Check the website for a tutorial: http://netmind.hu/beankeeper, and
+detailed documentation. There are also mailing lists and wiki available.
+
+Building
+~~~~~~~~
+
+To build, just issue the following command:
+
+   $ mvn package
+
+You may stop at this step, if all you want is the jar file. If you use maven,
+then you may edit the 'src/test/resources/test.properties' file, to setup
+your driver class and url for the integration tests. Then install beankeeper
+to your maven repository with the command:
+
+   $ mvn install
+
+If all test run correctly, you are ready to go.
+
+Requirements
+~~~~~~~~~~~~
+
+All the dependencies are taken care of by maven, but
+if you use the library outside maven, you'll need the
+following dependencies at runtime:
+
+* log4j-1.2.15.jar (or any other post 1.2 log4j library)
+* beankeeper-x.x.x.jar (this code)
+* commons-configuration-1.5.jar (or later)
+* commons-lang-2.4.jar (or later)
+* commons-logging-1.1.1.jar (or later)
+* commons-collections-3.2.1.jar (or later)
+

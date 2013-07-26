@@ -1,0 +1,13 @@
+pre.example
+{
+   border: 1px solid #CCCCCC;
+   width: 100%;
+   background-color: #EEEEEE;
+   padding: 5px;
+}
+
+td p
+{
+   margin: 0px;
+   padding: 0px;
+}

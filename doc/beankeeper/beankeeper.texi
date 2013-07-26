@@ -1,0 +1,2682 @@
+\input texinfo
+@setfilename beankeeper.texi
+@settitle BeanKeeper
+
+@titlepage
+@title BeanKeeper
+@subtitle Developer's Guide for BeanKeeper
+@subtitle Updated for version 2.5.0, September 2008
+@author Robert Brautigam
+@page
+@vskip 0pt plus lfilll
+Copyright @copyright{} 2006, NetMind Consulting Bt.
+@end titlepage
+
+
+@chapter Preface
+All current server side software, ranging from simple shopping carts to
+Enterprise applications must be capable of handling persistent data. Data
+that is to be usually saved to/recalled from a relational database. The
+amount of work, while desgining and coding such an application, which goes
+into implementing a suitable persistence layer can be quite time consuming.
+Additionally a software's lifecycle does not end on the first release. Even
+after it, there are usually a lot of modifications/bugfixes which modify
+the data model (even when it's well designed), or add to the model (for
+example when new features are added).
+
+BeanKeeper (formerly NetMind Simple Persistence for Java) is an O/R (object/relation) mapping
+library. It's task is to map java objects (and their relations to eachother)
+to a relational database, and to offer a powerful query service to retrieve
+them.
+
+To do this, the library attempts to take @strong{all} responsibilities
+regarding storing an object from the developer. This means, other than
+pointing the library to a usable database, no configuration is required to access
+all features of the library. Not while developing the application, nor
+while maintaining, updating the object model, or adding new classes or
+relations.
+
+This documentation will guide you through all functions of this library and
+introduces you to the internal workings, if you care (you don't have to
+know that, if you are using the library).
+
+Additional information can be found on the website: @uref{http://netmind.hu/beankeeper}.
+There is also a mailing list. Information how to subscribe are contained
+on the site.
+
+@chapter Introduction
+@section Preface
+This chapter is a tutorial writing a simple application using BeanKeeper, with complete source code listing and build help. Java
+knowledge is of course assumed, but @strong{no} SQL knowledge is required. The
+tutorial will try to simulate a real-world program lifecycle, starting with
+minimal code, and gradually adding more features as we go.
+
+To demonstrate the usage of BeanKeeper, we'll use HSQLDB as
+a database server. This is a compact database engine, written in Java, 
+which can be easily configured to create the database in the filesystem, so we don't
+have to install a full-blown database server.
+
+To compile and build these examples, you'll need Java SDK 1.4 or newer, and Ant.
+All source code in this chapter is included in the distribution, in the
+directory @code{doc/examples/}.
+
+@section Project Directory
+We will create a simple contact information application, which will keep track
+of our friends, and their contact information. Maybe not all aspects of this
+application will be practical from a programmer's point of view, but keep in
+mind, that this example is just that, an example.
+
+First, we'll have to create the appropriate directory structure for our little
+project. Create an empty directory for the project. All directories referred to in
+this chapter will be relative to this project directory. Create the
+following directory structure under the project directory:
+@example
+.
++src
+  +com
+    +acme
+      +contacts
++lib
+  hsqldb.jar
+  java-cup-11-runtime.jar
+  log4j-1.2.8.jar
+  beankeeper-2.5.0.jar
++build
+@end example
+The @code{src/com/acme/contacts} tree will be occupied by our Java sources,
+while the @code{lib} directory contains necessary libraries for the example
+to run: The hsqldb.jar file is our database, the other libraries are for
+the persistence library, and are included in the distribution under
+@code{lib/runtime}. The @code{build} directory will hold the compiled
+classes.
+
+To configure the log4j library, we'll need to create a file named
+@i{log4j.properties} inside the @code{lib} directory. The file
+should only contain one line, to at least disable debug logging:
+@example
+log4j.rootLogger=ERROR
+@end example
+
+For more information to configure log4j, see it's documentation at
+@uref{http://logging.apache.org/log4j/docs/}.
+
+@section The First Class
+The next thing we do, is to create our first class for our application,
+which will represent a Person:
+@example
+package com.acme.contacts;
+
+public class Person
+@{
+   private String firstName;
+   private String lastName;
+
+   public String getFirstName()
+   @{
+      return firstName;
+   @}
+   public void setFirstName(String firstName)
+   @{
+      this.firstName=firstName;
+   @}
+
+   public String getLastName()
+   @{
+      return lastName;
+   @}
+   public void setLastName(String lastName)
+   @{
+      this.lastName=lastName;
+   @}
+
+   public String toString()
+   @{
+      return "[Person: "+lastName+", "+firstName+"]";
+   @}
+@}
+@end example
+Object of this class will be used by the persistence layer to store..well.. people. 
+It is a standard JavaBean,
+and this is also the recommended way (in Java) to hold and communicate data. Using
+such beans and this library, it is possible to create a model which can be used
+within the whole application from the data layer to the presentation layer. The only
+constraint by the library is, that there always has to be a default constructor,
+either implicitly (as above), or explicitly if other constructors are also defined.
+Of course, you do not need to remember this, the library will throw an Exception
+with the appropriate message to remind you this, in case you forget it.
+
+Put the above source file into the @code{src/com/acme/contacts} directory.
+
+@section Building With Ant
+Now we have a source file, so we can already compile our project. We will create
+an ant file, which will compile our sources, and later run our application:
+@example
+<project name="examples" default="compile" basedir=".">
+
+   <path id="all_classpath">
+      <pathelement location="build" />
+      <fileset dir="lib" includes="*.jar" />
+   </path>
+
+   <target name="clean">
+     <delete dir="build"/>
+     <mkdir dir="build"/>
+   </target>
+
+   <target name="compile">
+      <javac classpathref="all_classpath" srcdir="src" 
+         debug="on" destdir="build"/>
+   </target>
+   
+</project>
+@end example
+
+To compile the project, you'll need to simply type @code{ant}:
+@example
+demon@@ruby:~/prg/examples/demo$ ant
+Buildfile: build.xml
+
+compile:
+    [javac] Compiling 1 source file to /home/demon/prg/examples/demo/build
+
+BUILD SUCCESSFUL
+Total time: 4 seconds
+demon@@ruby:~/prg/examples/demo$
+@end example
+
+@section Example Skeleton
+To interact with the persistence library, the main interface is the @code{Store} class. This class
+holds all necessary functions, such as @code{save()}, @code{remove()} and @code{find()}. To
+get a @code{Store} object, it's constructor awaits the pointers to a database, either a driver
+class and url, or a datasource. To access our database, we create a utility, which will access
+a @i{singleton} instance of @code{Store}:
+@example
+package com.acme.contacts;
+
+import hu.netmind.beankeeper.Store;
+
+public class StoreUtil
+@{
+   private static Store store = null;
+
+   public static Store getStore()
+   @{
+      return store;
+   @}
+
+   static
+   @{
+      store = new Store("org.hsqldb.jdbcDriver","jdbc:hsqldb:file:testdb");
+   @}
+@}
+@end example
+
+As you see, we import @code{hu.netmind.beankeeper.Store}, this is the class the application
+will use everywhere to access the persistence library. This utility class will always return
+a valid @code{Store} object (if the static initialization didn't fail), when calling 
+@code{StoreUtil.getStore()}, which is a static method.
+Of course, in a live project, such utility class will be more complex, since it has to read
+the database parameters from a configuration file, or get a @code{DataSource} through @i{JNDI}.
+Anyway, this will be sufficient for this little example, even if the database is hardcoded.
+Our main contact information handler will be a command line program, which will store, list and
+search our contact database, which currently only holds person objects, but we will get to that later.
+First, let's create the "shell" of our command line program, which will list all persons
+in our database:
+
+@example
+package com.acme.contacts;
+
+import hu.netmind.beankeeper.Store;
+
+public class contacts
+@{  
+   public static void main(String argv[])
+   @{  
+      listPersons();
+   @}
+   
+   private void listPersons()
+   @{
+      List persons = StoreUtil.getStore().find("find person");
+      System.out.println("Persons: "+persons);
+   @}
+@}
+@end example
+
+Well, that does not seem to be complicated, I hope. Let's go through the @code{listPersons} method. The
+first line is what queries the database for any person objects it might have. Of course, initially there
+ought to be none, but the important part is, that we receive a standard @code{List} of @code{Person}s
+which we print out in the following line. To run this program, add a task to the ant file:
+
+@example
+   <target name="list" depends="compile">
+      <java classname="com.acme.contacts.contacts" 
+         classpathref="all_classpath" fork="yes"/>
+   </target>
+@end example
+
+Let's try it out:
+
+@example
+demon@@ruby:~/prg/examples/demo$ ant list
+Buildfile: build.xml
+
+compile:
+    [javac] Compiling 1 source file to /home/demon/prg/examples/demo/build
+
+list:
+     [java] Persons: []
+
+BUILD SUCCESSFUL
+Total time: 6 seconds
+demon@@ruby:~/prg/examples/demo$ 
+@end example
+
+The line of the @i{list} task tells us, that our program
+worked, and told us, what we of course already know, that the list of persons currently in the
+database is an empty list.
+
+@section Adding Functionality
+Let's implement adding a Person to the program, so we can see something more interesting.
+To do this, we add another method to @code{contacts.java}:
+
+@example
+   private static void createPerson(String firstName, String lastName)
+   @{
+      Person person = new Person();
+      person.setFirstName(firstName);
+      person.setLastName(lastName);
+      StoreUtil.getStore().save(person);
+   @}
+@end example
+
+The method takes a firstname and lastname as a parameter, populates a @code{Person} object with it,
+and then simply calls @code{save()} on the @code{Store} object with it. To call this method,
+we modify the @code{main} method of the command line interface, so the method can be invoked:
+
+@example
+   public static void main(String argv[])
+   @{
+      if ( argv.length == 0 )
+         listPersons();
+      else if ( "create".equals(argv[0]) )
+         createPerson(argv[1],argv[2]);
+   @}
+@end example
+
+If called with empty parameters, the program still executes the list method, but when called with the
+first parameter @i{create}, it will call the create method with the next two command line parameters
+as the first and last names of the @code{Person}. This code does not check, that those parameters
+exist, but that is not the point now. Let's modify the ant script, so we can create peoples with it.
+To do this, we will add the @i{create} task:
+
+@example
+   <target name="create" depends="compile">
+      <input message="Firstname" addproperty="firstname"/>
+      <input message="Lastname" addproperty="lastname"/>
+      <java classname="com.acme.contacts.contacts" 
+         classpathref="all_classpath" fork="yes">
+         <arg line="create $@{firstname@} $@{lastname@}"/>
+      </java>
+   </target>
+@end example
+
+Well, it's interface won't be pretty, but enough for demonstration purposes. The task first gets the
+firstname and lastname, then calls the program with these parameters. The output should be
+something like (after issuing a list too):
+
+@example
+demon@@ruby:~/prg/examples/demo$ ant create 
+Buildfile: build.xml
+
+compile:
+    [javac] Compiling 1 source file to /home/demon/prg/examples/demo/build
+
+create:
+    [input] Firstname
+John
+    [input] Lastname
+Smith
+
+BUILD SUCCESSFUL
+Total time: 12 seconds
+demon@@ruby:~/prg/examples/demo$ ant list
+Buildfile: build.xml
+
+compile:
+
+list:
+     [java] Persons: [[Person: Smith, John]]
+
+BUILD SUCCESSFUL
+Total time: 4 seconds
+demon@@ruby:~/prg/examples/demo$ 
+@end example
+
+You can add as many persons to the database now as you like, and it wasn't hard, was it? Before we created
+the first person, there was nothing in the database, no tables, no rows, nothing. Let's look a bit deeper
+what happened, and why and how John Smith is now stored in the database. 
+
+When the code executed the @code{getStore().save(person)} instruction, the persistence library first checked the
+database whether the @code{Person} class is even known. To check this, the persistence library uses a helper
+table, which stores all used classes. But this time, there was no such table, so an empty one was created,
+and of course the new class was inserted. Now, the library tries again to store the given person, and checks
+whether there is a table to store person objects anyway. Most likely it did not find the appropriate table,
+so the library used reflection to analize the class, and created a matching table. It most likely used
+the table name 'person', and all attributes were named just like in the java class. There are times however, when the
+library can not do this, for example when the database does not support long enough names, or the class'
+or attributes' names are reserved words. In these cases the library tries to pick a name close to the original.
+After the table is created, the library registers the object, the object receives an identifier, and is
+inserted into the table. Once these tasks are all done, the storing of the next person the library may encounter is not so complicated,
+because the library skips immediately to the insert part (as all previous tasks are required only once).
+
+Every time the @code{Store} is instantiated, the first time a class is referenced (saved, removed or selected),
+the appropriate table's existence is always checked. Not only that, but also the table's schema is checked,
+and the library tries to compensate for changes in the class file. For example if a class file contains an attribute
+which was not there last time (it was added to the class), the library will alter the table to contain that
+attribute. If an attribute was removed, the library removes the appropriate column, and if the type of an attribute
+was changed, the column is dropped and re-added with the new type.
+
+@section Modifying The Data Model
+Enough of the theory, let's upgrade our program to actually hold some kind of contact information, for example
+address. An address is composed of many components, but let's just pick the most common ones:
+
+@example
+package com.acme.contacts;
+
+public class Address
+@{
+   private String country;
+   private String city;
+   private int zip;
+
+   public String getCountry()
+   @{
+      return country;
+   @}
+   public void setCountry(String country)
+   @{
+      this.country=country;
+   @}
+
+   public String getCity()
+   @{
+      return city;
+   @}
+   public void setCity(String city)
+   @{
+      this.city=city;
+   @}
+
+   public int getZip()
+   @{
+      return zip;
+   @}
+   public void setZip(int zip)
+   @{
+      this.zip=zip;
+   @}
+
+   public String toString()
+   @{
+      return " - "+country+"/"+city+"("+zip+")";
+   @}
+
+@}
+@end example
+
+Modify the @code{Person} class to contain a single @code{Address}, and also to include it in
+it's string representation:
+
+@example
+package com.acme.contacts;
+
+public class Person
+@{
+   private String firstName;
+   private String lastName;
+   private Address address;
+
+   public String getFirstName()
+   @{
+      return firstName;
+   @}
+   public void setFirstName(String firstName)
+   @{
+      this.firstName=firstName;
+   @}
+
+   public String getLastName()
+   @{
+      return lastName;
+   @}
+   public void setLastName(String lastName)
+   @{
+      this.lastName=lastName;
+   @}
+
+   public Address getAddress()
+   @{
+      return address;
+   @}
+   public void setAddress(Address address)
+   @{
+      this.address=address;
+   @}
+
+   public String toString()
+   @{
+      return "[Person: "+lastName+", "+firstName+address+"]";
+   @}
+@}
+@end example
+
+We modify our main program too, so when creating a person, we can add the address too:
+@example
+   public static void main(String argv[])
+   @{
+      if ( argv.length == 0 )
+         listPersons();
+      else if ( "create".equals(argv[0]) )
+         createPerson(argv[1],argv[2],argv[3],argv[4],Integer.valueOf(argv[5]).intValue());
+   @}
+
+   private static void createPerson(String firstName, String lastName, String country, String city, int zip)
+   @{
+      Address address = new Address();
+      address.setCountry(country);
+      address.setCity(city);
+      address.setZip(zip);
+      Person person = new Person();
+      person.setFirstName(firstName);
+      person.setLastName(lastName);
+      person.setAddress(address);
+      StoreUtil.getStore().save(person);
+   @}
+@end example
+
+Before you create a new person with an address, let's check, what the @i{list} task says about our current database.
+It should be interesting, because we added a field to the already saved @code{Person} class, but of course we did
+not have an address the time we inserted the first person:
+
+@example
+demon@@ruby:~/prg/examples/demo$ ant list
+Buildfile: build.xml
+
+compile:
+    [javac] Compiling 3 source files to /home/demon/prg/examples/demo/build
+
+list:
+     [java] Persons: [[Person: Smith, Johnnull]]
+
+BUILD SUCCESSFUL
+Total time: 6 seconds
+demon@@ruby:~/prg/examples/demo$ 
+@end example
+
+As you see, the address was null. This is also what we expected. Now let's insert a new person, with an address now. Before
+that, we first have to correct the ant task to include the new parameters:
+@example
+   <target name="create" depends="compile">
+      <input message="Firstname" addproperty="firstname"/>
+      <input message="Lastname" addproperty="lastname"/>
+      <input message="Country" addproperty="country"/>
+      <input message="City" addproperty="city"/>
+      <input message="Zip" addproperty="zip"/>
+      <java classname="com.acme.contacts.contacts" 
+         classpathref="all_classpath" fork="yes">
+         <arg line="create $@{firstname@} $@{lastname@} $@{country@} $@{city@} $@{zip@}"/>
+      </java>
+   </target>
+@end example
+
+Now create a new person:
+@example
+demon@@ruby:~/prg/examples/demo$ ant create
+Buildfile: build.xml
+
+compile:
+
+create:
+    [input] Firstname
+Jane
+    [input] Lastname
+Doe
+    [input] Country
+Neverland
+    [input] City
+Walkabout
+    [input] Zip
+5
+
+BUILD SUCCESSFUL
+Total time: 18 seconds
+demon@@ruby:~/prg/examples/demo$ ant list
+Buildfile: build.xml
+
+compile:
+
+list:
+     [java] Persons: [[Person: Doe, Jane - Neverland/Walkabout(5)], [Person: Smith, Johnnull]]
+
+BUILD SUCCESSFUL
+Total time: 4 seconds
+demon@@ruby:~/prg/examples/demo$ 
+@end example
+
+To summarize, we extended the @code{Person} class with another attribute, which referenced an @code{Address}
+object. What happened is, when we saved Jane Doe, the library detected, that a new attribute was present in
+the @code{Person} class, extended the already existing table to match. Then it also detected, that there
+is a new class that must be saved, and saved it when the referencing object was saved. It is worth to note, 
+that normally referenced objects are not saved (to put it another way: @code{save()} is not recursive), 
+only if the object does not exist yet, which was the case this time. 
+The @i{list} code was not changed, we only modified our @i{object model} and the library adapted.
+
+@section Finishing The Example
+As a last exercise, let's pretend that each person can have multiple addresses, for example home,
+workplace, parent's, or whatever. That would mean, that instead of a fix address attribute, the
+@code{Person} class would need a list of addresses. There are two ways to do this: the relational
+model way, and the object model way. In the relational way, for example when using relational databases, you
+would create a table, which holds all addresses, and then extend the person table with a @i{foreign key}
+which points to address rows. This is a correct way to express relations most of the time, but the
+object model way is more practical this time: Just create a list in the @code{Person} class, and
+let the library handle the relations.
+
+So, let's modify the @code{Person} class to contain a List of addresses, and extend the @code{Address}
+class to contain the type of address:
+
+@example
+package com.acme.contacts;
+
+import java.util.List;
+
+public class Person
+@{
+   private String firstName;
+   private String lastName;
+   private List addresses;
+
+   public String getFirstName()
+   @{
+      return firstName;
+   @}
+   public void setFirstName(String firstName)
+   @{
+      this.firstName=firstName;
+   @}
+
+   public String getLastName()
+   @{
+      return lastName;
+   @}
+   public void setLastName(String lastName)
+   @{
+      this.lastName=lastName;
+   @}
+
+   public List getAddresses()
+   @{
+      return addresses;
+   @}
+   public void setAddresses(List addresses)
+   @{
+      this.addresses=addresses;
+   @}
+
+   public String toString()
+   @{
+      return "[Person: "+lastName+", "+firstName+addresses+"]";
+   @}
+@}
+@end example
+
+As you saw, there is again no need to configure anything, the library will adapt
+to your object model runtime. Let's see, what our list function tells us now:
+@example
+demon@@ruby:~/prg/examples/demo$ ant list
+Buildfile: build.xml
+
+compile:
+    [javac] Compiling 2 source files to /home/demon/prg/examples/demo/build
+
+list:
+     [java] Persons: [[Person: Doe, Janenull], [Person: Smith, Johnnull]]
+
+BUILD SUCCESSFUL
+Total time: 4 seconds
+demon@@ruby:~/prg/examples/demo$ 
+@end example
+
+Interesting to note, that both persons we inserted until now return null address lists. This is expected,
+since we inserted John Smith, when there was no address attribute yet, and Jane Doe when the address
+attribute was a single @code{Address} object.
+
+Let's extend the main program, so we can add addresses to people. The parameters will stay the same,
+but we modify the @code{createPerson} method, so it only creates a new person, when there is no person
+with the given name. If there is, it merely adds the new address to it. The new method will be:
+
+@example
+   private static void createPerson(String firstName, String lastName, String country, String city, int zip)
+   @{
+      Address address = new Address();
+      address.setCountry(country);
+      address.setCity(city);
+      address.setZip(zip);
+
+      Person person = (Person) StoreUtil.getStore().findSingle(
+            "find person where firstname='"+firstName+"' and lastname='"+lastName+"'");
+      if ( person == null )
+      @{
+         person = new Person();
+         person.setFirstName(firstName);
+         person.setLastName(lastName);
+      @}  
+      if ( person.getAddresses() == null )
+         person.setAddresses(new Vector());
+      person.getAddresses().add(address);
+         
+      StoreUtil.getStore().save(person);
+   @}  
+@end example
+
+Now run the @i{create} task, and try to add a new address to John Smith:
+@example
+demon@@ruby:~/prg/examples/demo$ ant create
+Buildfile: build.xml
+
+compile:
+    [javac] Compiling 1 source file to /home/demon/prg/pet-projects/netmind-persistence/doc/examples/demo/build
+    [javac] Note: /home/demon/prg/examples/demo/src/com/acme/contacts/contacts.java uses unchecked or unsafe operations.
+    [javac] Note: Recompile with -Xlint:unchecked for details.
+
+create:
+    [input] Firstname
+John
+    [input] Lastname
+Smith
+    [input] Country
+Neverland
+    [input] City
+Nowhere
+    [input] Zip
+1111
+
+BUILD SUCCESSFUL
+Total time: 17 seconds
+demon@@ruby:~/prg/examples/demo$ ant list
+Buildfile: build.xml
+
+compile:
+
+list:
+     [java] Persons: [[Person: Doe, Janenull], [Person: Smith, John[ - Neverland/Nowhere(1111)]]]
+
+BUILD SUCCESSFUL
+Total time: 4 seconds
+demon@@ruby:~/prg/examples/demo$ 
+@end example
+
+Let's try to add a few other addresses:
+@example
+demon@@ruby:~/prg/examples/demo$ ant create
+Buildfile: build.xml
+
+compile:
+
+create:
+    [input] Firstname
+John
+    [input] Lastname
+Smith
+    [input] Country
+Somecountry
+    [input] City
+Somewhere
+    [input] Zip
+22222
+
+BUILD SUCCESSFUL
+Total time: 17 seconds
+demon@@ruby:~/prg/examples/demo$ ant create
+Buildfile: build.xml
+
+compile:
+
+create:
+    [input] Firstname
+John
+    [input] Lastname
+Smith
+    [input] Country
+AirstripOne
+    [input] City
+London
+    [input] Zip
+1
+
+BUILD SUCCESSFUL
+Total time: 33 seconds
+demon@@ruby:~/prg/examples/demo$ ant list
+Buildfile: build.xml
+
+compile:
+
+list:
+     [java] Persons: [[Person: Doe, Janenull], [Person: Smith, John[ - AirstripOne/London(1),  - Neverland/Nowhere(1111),  - Somecountry/Somewhere(22222)]]]
+
+BUILD SUCCESSFUL
+Total time: 4 seconds
+demon@@ruby:~/prg/examples/demo$ 
+@end example
+
+Well, this is the end of the standalone example. To summarize, we created a simple program to manipulate people and addresses. The example guided through the
+first step of creating a project directory structure, and creating the first program skeleton, incrementally
+to the point where the program was completed.
+
+@chapter Architecture
+
+This chapter has two goals. First, it explains the architecture of the library itself, and then it
+shows a few architectures @strong{in which} the library can be used, ranging from simple applications
+to enterprise front-end applications.
+
+@section Framework Architecture
+
+The following image is a general overview of the BeanKeeper framework:
+@center @image{architecture}
+As a caller, one can access the @code{Store} class, and it's methods (@code{save()},@code{remove()},@code{find()}).
+If there are multiple datasources in an application, each can have it's own @code{Store} object, but usually there is only one
+datasource (or database) in an application, so usually there is only one @code{Store} instance. All methods invokable
+through this class are thread-safe, so a single instance is enough for the whole runtime (for a single data source).
+It is possible to instantiate many instances of a @code{Store} class for the same datasource (same database), for example
+in a load-balanced environment, or failover architectures (see diagrams below).
+
+The @code{TransactionTracker} object can be accessed through the @code{Store} object. The tracker manages @code{Transaction}
+objects, which themselves contain the @i{Connection} to the physical database. Transactions have the usual methods
+for transaction demarcation, but also, they implement the @code{Map} interface. This is useful if you want to
+add data to the transaction itself, for example the user who is manipulating data. If a locking exception
+occurs, the exception will contain the @code{Transaction} which accesses the object currently, so by getting for
+example the user object from the @code{Transaction} itself, you can create a meaningful message, or tell the other
+user to hurry up with her work.
+
+The @code{LockTracker} object is also published through the @code{Store}. This tracker can be used to
+lock objects, so other threads or other nodes can not modify the object. The @code{save()} and @code{remove()}
+operations of the @code{Store} all lock an object before it is processed, so if an object is locked by some
+code, no operations can take place on that object except query.
+
+There are a few internal modules which are not directly accessible:
+@itemize @bullet
+@item
+The @i{Class Tracker} keeps all classes and their schema in memory, and also their subclass/superclass
+relations. If a new class enters the system through the @code{Store}, the Class Tracker determines whether
+to create the appropriate table, or whether to alter an existing table.
+@item
+The @i{Object Tracker} tracks object instances. The object tracker keeps a weak reference to all objects,
+and keeps also all related information on them, such as last known attribute states, as well as the identities themselves.
+@item
+The @i{Cache} contains the most recently used queries and their results.
+@item
+The @i{Query Parser} is a LALR(1) parser (and a compiler), which transforms the string
+queries into an object model, which will be transformed back to the specific sql dialect
+of the database by the lower level database implementations.
+@item
+The @i{Serial Tracker} is responsible for assigning unique, date based serial numbers for transactions,
+and data manipulations. This serial is used to version objects, and as such must be coordinated with
+other nodes which act on the same database.
+@item
+The @i{Database subsystem} contains abstractions of data access, and specific implementations for 
+different databases, so generic database operations can be applied to all kinds of database servers.
+@item
+The @i{Node Subystem} is responsible for keeping connected to other nodes who use the same database. This
+is necessary, because some operations, as getting serials, locking and state-related operations must
+be coordinated with all nodes, so that no conflicts happen. The connections are plain network connections,
+and the protocol is object serialization based.
+@end itemize
+
+The lowest layer of the library is the Database access layer itself. The task of this layer is to
+offer an abstraction over sql, to use by the above layers. All database manipulations are categorized
+into a few operations:
+@itemize @bullet
+@item
+Save
+@item
+Insert
+@item
+Remove
+@item
+Schema check
+@item
+Search
+@end itemize
+Before these abstract operations delegate the work to the appropriate, database specific implementation,
+some basic transformations take place. All table and attribute names are checked, that they do not
+exceed the maximum length supported by the database implementation, and that they do not match some
+database reserved word. If they do, they are abbreviated or renamed, and the new name will be noted, 
+so all subsequent references to the specific identifier is always renamed the same way.
+
+@section Usage Architectures
+
+This section describes some example architectures of different applications, and the library's place in
+them. Of course, you are free to create your own model, these are just the most common ones.
+
+@subsection Standalone Application
+
+@center @image{usecase_standalone}
+
+In this case, the most straightforward way to use the library is to let it persist the beans of
+your object/data model, and use those same beans (queried from the library, and saved by the library) 
+on the user interface. Even if you employ a strict MVC (Model-View-Controller) model, the beans
+can traverse the whole stack without re-packaging and without affecting the separation.
+
+The best way to guarantee, that only a single instance of the
+@code{Store} will be used, you should use the @i{singleton} programming pattern.
+
+@subsection Webapplication With Direct Database
+
+@center @image{usecase_selfweb}
+
+This is very similar to the standalone application case. The difference is, that the Controller
+and View roles are now replaced by different technology (Servlet/JSP, or other web framework). 
+The usage is the same though, the
+preferred way is to use the simple beans to communicate between each layer. The persistence
+library does not care, if an object leaves or re-enters the controller layer, or if it
+returns at all. If an object is read from the database, that object is tracked throughout
+it's lifetime, regardless, whether it stays in the same transaction, or goes out to be rendered
+on a webpage. The same is true for result lists. Result lists can leave the transaction they
+were created in, or re-enter into a different transaction, it does not matter, so no special
+care needs to be taken when handling data received from or sent to the persistence library.
+
+As before, the @code{Store} object should be a singleton though.
+
+@subsection Web Container Managed Datasource
+
+Most web applications do not handle their JDBC driver directly, but the web container (application server)
+handles and pools connections for them, and it publishes a @code{DataSource} object through @i{JNDI}.
+You can construct the @code{Store} object with a @code{DataSource} object, in which case the architecture
+of the web application will be something like this:
+
+@center @image{usecase_webdatasource}
+
+@subsection Web Container Managed Datasource with Multiple Servers
+
+@center @image{usecase_webdatasource_loadbalanced}
+
+Commonly, webapplications are deployed on a cluster, or are load-balanced, using multiple application
+servers, and a single database server (or a database server cluster, but with a single entry point).
+In this case, there needs to be multiple Store objects instantiated in different JVMs to support this
+architecture (one in each application server). BeanKeeper will in this case
+automatically detect, that more than one @code{Store} objects (also called Nodes in this case) are connected
+to the database, and will connect to these Nodes to coordinate the work.
+
+
+@chapter Mapping To SQL
+
+This chapter describes how different aspects of your object model are mapped to the relational database. This
+knowledge is not required to use the library, these mechanisms are all automatic and non-configurable anyway.
+
+@section Save and insert algorithm
+
+All object operations are available from the @code{Store} object. As you probably observed, there is no
+separate @code{save()}, and @code{insert()}, only @code{save()}. Objects which have not yet been inserted
+will be inserted by this method, and already existing objects will be saved.
+
+The method is @strong{not} transitive most of the time, it is only transitive on paths of non-existing objects.
+This means, that when you save an object, the referred objects (either directly through a reference, or
+inside Maps or Lists) will @strong{not} be saved with this object, @strong{except}, when that object does not
+exists yet. The idea is, that when you explicitly save an object, the library assumes, that you want
+to save the object @strong{as is}, with it's @strong{attributes}, and current @strong{relations} to other objects.
+Because a relation can only be saved, if both ends of the relation exist, all objects to which this object relates
+will be saved. All already existing objects will not be saved, because that is not necessary for the relation to be saved.
+This algorithm is capable 
+of handling circular references, self-references so no infinite recursion can occur.
+
+When an existing object is saved, it is important to note, that it is saved @strong{as is}.  Suppose,
+an object is queried from BeanKeeper, and is presented to the user. Let's suppose that another thread
+modifies this object in the background (this is possible, if no locks are used). Let's say, that the
+user reviewed the object, but did not alter any of the attributes. If she clicks save, what should happen?
+None of the attributes have changed, but it would be quite confusing, if the object came back with
+the modifications of the background thread. Instead, BeanKeeper detects that some attributes were
+indeed changed in the background, and that the object's attributes need to be saved, even if no
+physical changes took place on the object itself! So in the end, the 'older' object will became
+the current object again, overwriting the background modification.
+
+@section Objects
+
+The main nodes of your object model are objects themselves. All objects which are conforming to a few
+simple rules can be handled by the library:
+@itemize @bullet
+@item
+Classes that will be used must have a default constructor, because they will be instantiated by the library itself
+automatically. If a class does not have one, the library will throw an exception when trying to apply any of the
+@code{Store} methods.
+@item
+Inner classes won't be handled.
+@item
+Classes from the @i{java.**} hierarchy won't be handled (they can be subclassed though).
+@item
+Primitive types or arrays won't be handled directly, but only within objects conforming to above rules.
+@end itemize
+
+Basically, what these rules are saying is, that you should create your on class hierarchy, and then you'll be fine.
+Note however, that when extending some @i{java.**} class, attributes in those classes will not be saved, only those
+that are outside the @i{java.**} hierarchy.
+
+Objects with classes which conform to the above can be saved, searched for or removed. When the library encounters
+such a class the first time, a table will be created for the class. The table's name will mostly match
+the class' name, more specifically, the library will try to create a table with the classname but the packages
+stripped. If that is already taken, the library will extend the name with more and more package names until
+the name becomes unique. Of course it is possible that the name will be too long for the database to handle
+(yes, such databases exist even today), in this case the library will try to guess a name using the classname
+and some numbers appended to it.
+
+Each such table will hold an object of the class it was created for in a single row, so the table will have a
+column for each attribute in the class. The library will examine the class using reflection, and automatically
+create columns for each @i{non-static} @i{non-transient} member attribute.
+
+For example a class like this:
+@example
+package com.acme.bookstore;
+
+public class Book
+@{
+   private String title;
+   private String authorName;
+   private Date publishDate;
+   private int quantity;
+
+   ...getters, setters...
+@}
+@end example
+
+Will cause the library to create a table named @strong{book}, with the following columns:
+@multitable @columnfractions 0 0 0
+@headitem Column @tab Type
+@item title
+@tab text
+@item authorName
+@tab text
+@item publishDate
+@tab timestamp
+@item quantity
+@tab int
+@end multitable
+
+There will be other columns however, with metadata specific to the persistence library, these will be
+prefixed with @i{persistence_}. The primary key of the table will consist of the combinations of some of
+these meta-data. The library will assign each object an identifier called the @i{persistence_id}. This
+information will be also saved with each object into their rows, but keep in mind, that this is @strong{not}
+a unique identifier. It identifies an object alright, but there are multiple @i{versions} of the
+same object concurrently in the database, so the primary key of the tables are the @i{persistence_id}
+and the version information together.
+
+As we saw, all @i{primitive} types are directly mapped to their respective columns in the database.
+All following primitive types and their boxed counterparts are supported:
+@itemize @bullet
+@item int (Integer)
+@item short (Short)
+@item long (Long)
+@item char (Character)
+@item byte (Byte)
+@item boolean (Boolean)
+@item double (Double)
+@item float (Float)
+@end itemize
+
+Additionally the following types are also handled like primitive types, so they are 
+directly mapped to a column in a table:
+@itemize @bullet
+@item String
+@item Date
+@item byte[]
+@end itemize
+
+In each database these fields are mapped to a specific sql type best suited for storing the given java type.
+There are a few guarantees which can be taken granted, whatever database is in use:
+
+All these types are guaranteed to be saved exactly with the value they were given. That is, boxed types can 
+always be null, in which case they will stay null when saved and loaded from database. All primitive types
+are guaranteed to have the exact same value after reload expect float and double, which can have minor
+errors due to differing floating point representations by the database.
+
+@section Container types (Collections, Lists, Sets, Maps)
+
+The library is capable of handling Collection and Map typed attributes also, so all attributes which are
+declared @code{Collection}, @code{Set}, @code{List} or @code{Map} are supported.
+
+If an object has some @code{Collection} attributes, the library will of course not include the whole collection into one column,
+but it will create a sub-table for this attribute. A relation table, that will connect the container object with
+the objects in the list. The container types behave exactly as defined by the Java API specification: Sets are
+unordered and can contain no duplicate objects (objects with same @code{persistence_id}), attributes declared 
+@code{Collection} will be implemented as Sets, Lists are ordered (they maintain order!) and can contain the
+same object multiple times. All container types can contain other objects, or primitive types, but they can not
+contain other container types, or null values. Additionally @code{Map}s can only have String keys.
+
+For the library to recognize these types, the declaration has to be with the exact types @code{Collection}, @code{Set}, @code{List} or @code{Map}:
+@example
+public class Book
+@{
+   private String title;
+   private List authors;
+@}
+@end example
+
+This is because the library will replace ordinary @code{Vector}, @code{ArrayList} and other specific class instances
+with special, own objects. These objects will implement on-demand and lazy loading features but will behave
+exactly as the interface specifications describe. Be sure to avoid casting these objects, because they will
+most likely throw @strong{ClassCastException}.
+
+Note however, that from the point of view of BeanKeeper, these @i{container} types are containing @i{relations}.
+If you call for example @code{contains()} method on some List, it will not use the object's own @code{equals()}
+method, but it will determine whether the @i{relation} to the given object is present in the List.
+If you try to @code{remove()} and object from a container, you do not need to have the exact object
+that was inserted, because only the object's identity is important to remove the relation from it. This also
+means, that, for example a Set can contain two objects, which may @code{equal} in Java sense, but if
+they have different identities (@i{persistence_id}s), then they both can be added to the same Set.
+
+The only exception from the above rules are primitive types. When invoking @code{contains()} or @code{indexOf()}
+methods with primitive objects, then the value is used for search, and not the primitive object's
+@code{persistence_id}. 
+
+To summarize, the library handles attribute @code{List}s and @code{Map}s with a table which contains the
+relations necessary to select the objects in the @code{List} or @code{Map}. This is suitable for handling
+many-to-many relations, which means an object can be a member in a list within multiple objects, and an object
+can have multiple contained objects in a list. Some might formulate the question how the library detects
+one-to-many, many-to-one patterns. Well, it doesn't. It treats everything as many-to-many, which of course
+creates an overhead when selecting, but significantly simplifies the handling of these relations. 
+
+Note on loading: @code{Collection} types and @code{Map} attributes will load @i{lazyly}. That is, they will not be
+loaded together with the object, but only when they are the first time referenced. And even if they are
+referenced, they will never contain more than a few dozen objects at a time from the database. So they
+behave just like @i{LazyList}s (because they are backed by one by the way). This means you @strong{can}
+use these constructs to hold virtually unlimited amount of data, either one-to-many or many-to-many relations.
+Check the appendices for a description of the efficiency of these container types and their methods.
+
+@section Bean type attributes
+
+Bean type attributes are attributes which represent a one-to-one (or one-to-many) relation to another object. These are handled
+with storing the @i{persistence_id} simply in the column representing the attribute in question in the database.
+When loading objects with direct references to other objects, these @i{referred} objects will be always loaded immediately
+with the @i{referrer} object itself. @i{Null}s are allowed in such attributes, and will stay null when saved and
+reloaded from database.
+
+@section Polymorphism
+
+With polymorphism, selecting for a superclass, you assume that the result list will contain all objects
+which are subclasses of the selected superclass. Take the following example:
+@example
+public class Writing
+@{
+   private String title;
+   private Author author;
+
+   ...getters, setters...
+@}
+
+public class Book extends Writing
+@{
+   private String isbn;
+
+   ...getter, setter...
+@}
+@end example
+
+In this example, if you query the database for a @code{Writing}s with an author specified, you might assume
+that the result list will contain @code{Writing}s and also @code{Book}s which the specified author might have
+written.
+
+In Java, an inheritance graph of a single class is always a @i{tree}, because every class has exactly one superclass
+(except the @code{java.lang.Object} which has none), and every class might have zero or more subclasses. To 
+represent a class in the database, the library creates a table for the class, as described in the previous
+sections. When the class has a superclass, which is also an ordinary bean, then the library creates a table
+for that class too. That means each class has it's own table, which has columns for those attributes defined
+in that class, but not for attributes which are merely inherited. When selecting for a class that is polymorphic, the
+library knows, that it is contained in more tables, and joins together these tables to recevie all columns which
+are accessible in a potential object of that class.
+
+So, following the example above, the @code{Book} class will cause a table named @i{book}, but it will have only
+one attribute: @i{isbn}. The @i{writing} table will have the @i{title} and @i{author} attributes.
+
+Polymorphism also enabled for member attributes to be interface classes, for example:
+@example
+public class Tree
+@{
+   private GraphNode root;
+
+   ...getters, setters...
+@}
+
+public interface GraphNode
+@{
+   List getParents();
+   List getChildren();   
+@}
+@end example
+
+In an extreme case, you can define a member attribute to be @code{java.lang.Object}, however, the less
+specified the attribute, the more complex the query. Even the number of the select statements to 
+execute is dependant on the specified attribute's class.
+
+@section Other relations, such as one-to-many, many-to-many
+
+We previously described, how the library handles one-to-one relations (references). One-to-many and many-to-many
+relations are not distinguished automatically by the library, as these can't be detected reliably without any
+user intervention.
+
+Detecting one-to-many relations automatically would mean, that there is a List in the parent object, and when you
+insert another object into it, the library somehow guesses that there is an attribute in that object which
+represents this relationship, and that attribute should be used to insert the object into the list, and the list
+itself should be selected using that attribute. This is simple using annotations, but the library does not want
+to use any kind of configuration. Instead, you have two choices:
+
+You can simply use any of the suitable container types. As you recall, these container types handle many-to-many relations, 
+so practically you may lose a bit of performance, since instead of storing the one-to-many relation, you just
+store it, as it were a many-to-many relation. Some care about that lost performance, and some care about simple code, it's your choice.
+Anyhow, if one were to store events which are related to a person, one could simply write:
+
+@example
+public class Person
+@{
+   private List events;
+
+   public List getEvents()
+   @{
+      return events;
+   @}
+
+   public void addEvent(Event event)
+   @{
+      events.add(event);
+   @}
+@}
+
+public class Event
+@{
+   private int type;
+   private Object parameter;
+
+   ...getter, setter...
+@}
+@end example
+
+The other option is to manually create the relation. This means to insert a Person attribute in the
+event, and assemble the query manually:
+
+@example
+public class Person
+@{
+   public List getEvents()
+   @{
+      return getStore().find("find event where owner = ?", new Object@{this@});
+   @}
+
+   public void addEvent(Event event)
+   @{
+      event.setOwner(this);
+      getStore().save(event);
+   @}
+@}
+
+public class Event
+@{
+   ... attributes ...
+   private Person owner;
+
+   ...getter, setter...
+@}
+@end example
+
+@chapter Transactions
+
+Transactions are an atomic set of database operations, or in this case object operations, that are either
+successfully commited, so all operations inside are also guaranteed to successfully finish, or fail, in which
+case all operations inside the transactions are ignored from the beginning of the transaction.
+
+BeanKeeper handles currently only user managed Transaction demarcation, which means you have to
+tell the library when a transaction begins, and when it commits. Even if you do not explicitly define transactions,
+you will use them implicitly, because each operation of the @code{Store} uses them. When you call @code{save()}
+or @code{remove()}, they create a transaction for themselves (if there was none), and use it to execute the required
+function. If an error occurs inside these methods, the enclosing transaction will be set to @i{rollback only}. This
+means, the transaction can only roll back, whatever happens after that.
+
+To explicitly use transactions, first you have to get the @code{TransactionTracker} from the @code{Store}:
+@example
+TransactionTracker tt = getStore().getTransactionTracker();
+@end example
+
+Where @code{getStore()} is some method of the application which returns the singleton instance of the @code{Store}.
+
+@section Transaction Tracker
+
+The @code{TransactionTracker} manages all transactions currently in the application. If you want to keep track of
+transaction commit and rollback events, you can register listeners to this tracker, which will be notified on every
+commit or rollback event. To do this (assuming @code{tt} is the @code{TransactionTracker} object):
+@example
+tt.addListener(new MyTransactionListener());
+@end example
+After this code, the @code{MyTransactionListener} will be called each time a commit or rollback event is generated.
+The listener interface of a @code{TransactionListener} has two methods, which are very straight forward:
+@example
+void transactionCommited(Transaction transaction);
+void transactionRolledback(Transaction transaction);
+@end example
+
+Note that these methods receive the transaction object which generated the event, but those transactions are
+already finished, so you can not use them for executing operations. Also, if you get a transaction from the tracker,
+and execute some database specific operation inside these methods, those transactions will @strong{not} cause these methods to be
+triggered, to avoid infinite recursion.
+
+The @code{TransactionTracker} can be used to get @code{Transaction} objects from it to mark the
+beginning and end of a transaction. To get a transaction object, you execute the following code:
+@example
+Transaction tx = tt.getTransaction(TransactionTracker.TX_REQUIRED);
+@end example
+The parameter of this call can specify how to handle possible currently active transaction objects inside the same thread,
+it has the following possibilities:
+@itemize @bullet
+@item TransactionTracker.TX_REQUIRED
+@item TransactionTracker.TX_OPTIONAL
+@item TransactionTracker.TX_NEW
+@end itemize
+To understand the differences between these modes, we must note, that each @code{Transaction} object is associated with the
+@i{thread} it was created in. In other words, if a method allocated a transaction, each method called from this method will
+use this allocated transaction implicitly (if not instructed otherwise). If you get a transaction using @strong{TX_REQUIRED},
+you tell the tracker, that an explicit transaction is required for the following operations. The tracker will do the minimum
+to fulfill your request: If a transaction already is active, so somewhere in the caller stack, somebody has already requested
+a transaction, that one is used. If there were no transactions required yet, then a new one is allocated and used, but either way,
+a @code{Transaction} object is always returned. Keep in mind, that if you set this transaction to rollback, then possibly
+you will rollback all the operations executed by the caller methods in the caller stack. Also, this is the mostly used
+mode of transaction allocation.
+
+Using @strong{TX_NEW} tells the tracker, that a new transaction is to be allocated, even if there was a transaction already
+active in the thread. This means, if you rollback this transaction, the enclosing transaction could still commit successfully.
+To enable this, the tracker keeps a @i{stack} of transactions to each thread. When this transaction finishes (either commits,
+or rolls back), the previous transaction that was interrupted when requesting a brand new transaction will become acitve again.
+This is not an @i{embedded} transaction, no parameters of the previous transaction are visible in this new transaction, and
+also no modifications of a possible parent thread are visible.
+
+Using @strong{TX_OPTIONAL}, you either receive the active transaction currently in the thread, @strong{or null}, if there is no
+transactions currently active.
+
+@section Transaction
+
+So, now that we got a @code{Transaction} object, we can use it to demarcate our transaction boundaries:
+@example
+Transaction tx = tt.getTransaction(TransactionTracker.TX_REQUIRED);
+tx.begin();
+
+...operations...
+
+tx.commit();
+@end example
+
+The above code demonstrates the basic usage of transaction demarcation. When you get a transaction from the tracker, you @strong{must}
+call @code{begin()} to start the transaction. You may remember, that this transaction may be the same that one of our callers
+already allocated, and most likely @code{begin()} was called by that code too. Do not worry, these transactions can handle
+embedded transactions, so you do not have to guess, whether @code{begin()} was called or not, call it always.
+
+Each @code{begin()} call, must have their closing @code{commit()} @i{or} @code{rollback()}. If after a @code{begin()} none
+of these were called, then the transaction becomes unbalanced, the same way when in an expression parantheses are unbalanced. This will
+cause unexpected or unclosed and uncommited transaction, so you might want to avoid these. Most of the time these are caused by exceptions
+which alter code execution, and a @code{commit()} will be never reached. To fix this, the following code is suggested:
+@example
+Transaction tx = tt.getTransaction(TransactionTracker.TX_REQUIRED);
+tx.begin();
+try
+@{
+   ...operations...
+@} catch ( ... ) @{
+   ... handling code...
+   tx.markRollbackOnly();
+@} finally @{
+   tx.commit();
+@}
+@end example
+
+As you see, in this code, the @code{commit()} will be always executed, no matter what happens. Of course, if there is an error,
+we do not want a @code{commit()}, but rather a @code{rollback()}. To simulate this, we mark the
+transaction as @i{rollback only} in the exception handling code. This way, even if the @code{commit()} is executed, the transaction will roll back when it's called.
+
+@code{Transaction} objects implement the @code{Map} interface. This is useful, if you want to note some information to each 
+transaction, for example the user who executes the said transaction, or pass information to the
+transaction event handler about the transaction.
+
+It is also useful, if you just populate the transaction with important information, so that lower
+layers of code can extract this information from the transaction object. For example the transaction is opened in a
+Servlet which just received a @i{POST} with some data, then this servlet might put the User object, available from the Session
+into the transaction, and call buisness logic to execute the required operation. The business logic normally could not determine
+the User object by itself, because it is (rightfully so) separated from the presentation layer, but it can easily extract it
+from the @code{Transaction} object it receives from the @code{TransactionTracker}. Note however, that the @code{Transaction}
+object is not for parameter passing between methods. You should only add information to a @code{Transaction} object, if
+that information is really @strong{about} the transaction, not just some convenient way of passing parameters.
+
+@section Transaction Isolation
+
+In a @i{multithreaded} application, such as webapplications, it is important to consider concurrency and parallel access to
+the database/persistence layer.
+
+The first trivial problem is to make the persistence layer capable of handling calls in a thread-safe manner. This is ensured
+by the library itself, and not a problem for the caller. More important problem is, the @i{transaction isolation level}, which
+is presented as a configuration possibility in most application servers and databases. These levels are used to counteract some problems when
+a database is in use from multiple connections simultaniously:
+@table @samp
+@item Dirty Reads
+Dirty reads happen if a transaction reads data, that is under modification by another transaction
+concurrently. The read is said to be dirty, because the object in question might have been already
+modified (dirty), but was not when the read began.
+@item Non-Repeatable Reads
+A non-repeatable read is a query which returns data, but if executed again in the same transaction
+it possibly returns a result with some records modified. This may be caused by another transaction concurrently
+modifying the data of the query.
+@item Phantom Reads
+Phantom reads are happening, if a query, executed again in the same transaction returns a different set
+of results as before. This may be caused by a concurrent transaction which inserts or removes rows which
+satisfy the query's where clause.
+@end table
+
+To counteract these problems, which usually make a system unstable or can cause the database or the application to become
+inconsistent, there are four levels of @i{transaction isolation levels}
+@table @samp
+@item TRANSACTION_READ_UNCOMMITTED (level 0)
+Default level, counteract none of the above problems.
+@item TRANSACTION_READ_COMMITTED (level 1)
+Counteracts dirty reads.
+@item TRANSACTION_REPEATABLE_READ (level 2)
+Counteracts dirty reads and non-repeatable reads.
+@item TRANSACTION_SERIALIZABLE (level 3)
+Countercts all problems.
+@end table
+
+There are however two serious problems with the implementation of these counter measures in the databases. First, they are
+mostly implemented with @i{locks}. This means, that a table or row may be not accessible during an update. If you want to
+counteract @strong{all} problems, which is likely what everyone wants, it is not uncommon that whole tables must be locked
+during a transaction to ensure that all reads and writes are consistent. This can lead to serious performance degradation.
+Another problem with locks is, that they can lead to dead-locks, in which case the whole application might hang. This may be
+prevented by given databases, but it is not guaranteed by default. To overcome these problems, one usually does not have
+the luxury of setting the isolation level to @i{TRANSACTION_SERIALIZABLE}, and one must choose which statements, tables
+or rows are to be locked, and only the really necessary ones will be locked.
+
+The second problem is with these isolation levels, that they are only available @i{in the scope of the transaction}. There
+are plans in the JDBC standard to overcome this limitation, but it's not there yet, and even that does not solve all issues.
+So imagine a simple web page of customer listing, and say you have over 100.000 customers (hm.. if that's the case, consider
+donating to this project :). To list these customers on the page, we really don't want to hold all 100.000 customers in memory,
+we only list 30 on one page anyway. So we get a list from the database, but read only the first 30 and display them on the page.
+When the user presses the 'next' button, we want to read the next 30 records. We can do that safely, because we employ
+@i{TRANSACTION_SERIALIZABLE} isolation level, right? Wrong! Most likely this second read will be a different transaction than
+the first one, so our isolation level means nothing (well, next to nothing) in this case. We read the next 30 records, but
+we cannot guarantee, that these 30 records will be the same @strong{as if they were read in the first transaction}. In other
+words, we might end up with some of the customers repeating from screen one, or we might have skipped some customers because
+somebody deleted some of the customers from the first screen while we were browsing through screen one.
+
+The good news is, you don't have to deal with any of these issues when using BeanKeeper, because it counteracts all of these 
+problems at the same time. When you get a @code{List} from one of the @code{Store}'s @code{find()} methods,
+you get a lazy-list of @strong{all} records. Lazy meaning, that not all records will be kept in memory, only a few dozens of them, but
+despite this, the list is guaranteed to @strong{never} change. This list @strong{can} leave the transaction it was created in, because
+it does not depend on traditional transaction isolation levels. The library uses @i{versioning}, and keeps all versions of an object in the 
+database, when issuing a query, the library marks the resulting lazy-list with the current timestamp, so all subsequent paging by that
+result list will only select the versions of objects which were active when the query was created. This way, no locking is
+performed, and lists are always insensitive to changes in the database. This means, that if a transaction started, all other
+changes made during this transaction by other possible transactions are not visible.
+All this for the price of increased storage space (which is nowdays very cheap), and a little more complex queries for the database to handle.
+
+@section Visibility
+
+Transactions of the library will always behave like when using @i{TRANSACTION_SERIALIZABLE} isolation level on 
+tranditional databases. That is, to produce @i{repeatable reads} inside a transaction, the library will always return 
+the same result list consistently when executing the same query inside the same transaction. No external transaction will change the 
+result of a query. You can think of it, as if during a transaction, no other transactions are running.
+
+The following table sums up differences and similarities of transactions allocated with the given transaction types
+got from the @code{TransactionTracker}:
+
+@multitable @columnfractions 1 1 1 1 1
+@headitem Type @tab Same visibility as parent @tab Shares parameters with parent @tab Commits separately @tab Can be null
+@item TX_REQUIRED @tab yes @tab yes @tab no @tab no
+@item TX_OPTIONAL @tab yes @tab yes @tab no @tab yes
+@item TX_NEW @tab no @tab no @tab yes @tab no
+@end multitable
+
+@chapter Locking
+
+Historically there are many forms of locking mechanisms, and many implementations. Other
+O/R mapping tools might offer you any of these mechanisms, or they offer none, and let you
+figure it out with database isolation levels. The problem is, as discussed earlier, that these
+isolation levels do not provide enough protection for a parallel and/or distributed application,
+like a webapplication. And they are very hard to understand, and handle.
+
+There are basically two kinds of locks people often encounter. There are @i{read} and @i{write}
+locks. Read locks let you lock an object for reading making it practically read-only, so 
+during the transaction (until unlock)
+you can guarantee that the object in question does not change. When you hold a read lock
+on an object, obviously many other users can hold read locks too to the same object. A write
+lock is different, because only one user can hold a write lock on an object, and that user
+has the right to read or modify the object.
+
+BeanKeeper supports both of these types of locks, but in a bit different fashion. @i{Read}
+locks are usually used for two different purposes: One is, that inside a transaction
+some data you read must be made to look consistent, so it does not change during the
+transaction, because that would cause the transaction logic to be inconsistent. This
+scenario is handled by BeanKeeper as described previously, because inside a transaction
+the whole database freezes to the state when the transaction begun, so nothing changes. 
+The other reason to use read-locks is too really @i{prevent} the object in
+question to change. The difference is, that the first scenario only does not want to see
+the change, but really does not care if it changes. The second wants to actively
+prevent the change. 
+
+An example would be: A DVD rental software's report screen first lists the people who
+have DVDs out, then lists DVD titles, and how many of them are out. If the database would
+change right after the list of people is queried, but before the list of DVDs is queried,
+then the screen might become inconsistent. Let's say that at another counter, a DVD is brought
+back exatcly between the two lists. Then the DVDs list would indicate that the given DVD
+is in, but the peoples list would indicate, that somebody has that DVD. The report screen
+logic in reality does not care if somebody brought back the DVD, all it cares about is, that
+the change @i{should not be visible} when it is in the middle of it's calculation. This is the
+scenario that never going to happen in BeanKeeper, because this is automatically prevented.
+
+An example for the second usage of @i{read} locks would be to imagine a credit-card re-activation
+function in a bank software. Let's suppose the logic of the reactivation is: check the balance,
+whether it is positive, and re-activate the card if it is. In this case, if the balance is
+positive, but a withdrawal happens exactly between the checking and the reactivation, then it
+is possible, that the re-activation occurs on a negative balance. Note however, that if
+the change is not visisble to the reactivation transaction, the logic still failed, because
+it activated a negative balance card. The solution is to actively @i{prevent} the change
+from happening while the reactivation runs, and this is what a @i{read} lock does.
+
+So the difference between the two is, if you don't hold read locks, modifications @i{can} happen
+to things you are using, you just won't see them if the transaction you are in started
+@i{before} the modifications took place. If you do hold a read lock however, you don't
+just not see the modifications, you're actually preventing everyone making modifications.
+
+When you hold a @i{write} lock in BeanKeeper, that means you intend to modify the given
+thing (object or objects of a given class). If you hold a write lock, the object still can be
+read by other threads, however nobody can have any kind (read or write) locks to that object
+(or object's class, or any super-, or sub-classes). This means, you have exclusive usage
+of that object, and functions which would require read-locks can not run until you release (unlock)
+the object. Note however, that this kind of lock is still friendlier than database locks, 
+since it still enables anyone to read the object in question, which is usually prevented with
+conventional locks.
+
+@section Object Locking
+
+O/R mapping libraries have usually
+two kinds of strategies when dealing with multiple usages of the same object, for example when two parallel threads select
+the same object from the database.
+
+The first strategy is, that all object identities can have at most one instance in the JVM. That is usually achieved by
+keeping a reference to each loaded object, and when a second transaction tries to load the same object identity from the database,
+the same @i{instance} is returned. This means also, that modifying the object with setter bean methods instantly changes the object
+for the other transaction also. This solution does not scale to distributed applications well.
+
+The second strategy is, that all queries return new instances of the same object identity, and this is what BeanKeeper
+uses. With this, modifying either of the objects won't affect the other, which is considered a good thing, but with this we open a 
+whole new can of worms. It is possible for two transaction to try to modify the same object identity (table row), but with different
+data, which could lead to an inconsistent state when the two transaction interfere with eachother.
+This is where @strong{locking} comes into play. Locking is achieved through the @code{LockTracker} object available from
+store. To lock an object, simply call:
+
+@example
+store.getLockTracker().lock(obj);
+@end example
+
+The lock is active until the lock tracker receives the approriate @code{unlock()} call:
+
+@example
+store.getLockTracker().unlock(obj);
+@end example
+
+Note, that locks are embeddable, so that an object is only unlocked, if the @code{LockTracker} recevies the same
+amount of @code{unlock()} calls as @code{lock()} calls. When an object is locked twice for example (because the object
+is also locked in a deeper method also), then the first @code{unlock()} call will not actually unlock the object, just 
+decrease the @i{depth} of the locking.
+
+When an object is locked, no modifications (@code{save()} or @code{remove()}) can be invoked on any of the objects with the
+same identity (representing the same row in the database). This means, that only the keeper of the original object may
+modify that identity. You can also supply a @code{SessionInfo} object to the lock method, representing the thread which
+locks the object. This @code{SessionInfo} may contain information about the current caller user, or anything related to the
+session in which the lock occurs. If another thread (or node) tries to lock an object with the same identity, then 
+it receives an exception that indicates, that the object is already locked, and this @code{SessionInfo} object is also contained
+in the exception. With the help of this @code{SessionInfo} object, the other thread might inform it's user who the current owner
+of that object is (if this information is contained in the @code{SessionInfo}).
+
+By default, @code{SessionInfo} is created from the actual transaction object, so that all information in the transaction
+is copied into the @code{SessionInfo}. This behaviour can be changed by supplying a @code{SessionInfoProvider} to the @code{LockTracker}
+(see apidoc).
+
+Note, that only the owner of a lock can unlock the said object. The owner is defined as the
+same @i{node} and the same @i{thread} which locked the object. If there was an explicit
+@code{Transaction} when the lock occured, then the lock can not be undone in another transaction.
+(It can be unlocked outside the original transaction however, in the same thread).
+
+@section Class locking
+
+BeanKeeper offers a mechnism to lock whole classes too. This is mostly done to prevent
+creation of new objects for example, which could not be done just by using object locks. Locking
+a class means, that no @code{save()} or @code{remove()} operations can be done which concerns
+objects with the given class.
+
+You can use the same api as with locking objects:
+@example
+store.getLockTracker().lock(Book.class);
+@end example
+
+Locking classes however is a bit different, because it is polymorphic. Locking a superclass
+will lock all of it's subclasses too. So locking a @i{Vehicle} type will lock @i{Car} and
+@i{Truck} subclasses too. This also means, that locking @code{Object.class} will lock
+the @i{whole} database (because everything is a subclass of @code{Object.class}). 
+You can lock interface classes too, in which case all classes which implement it will be locked.
+
+@section Ensuring an object is current
+
+Sometimes, in a statless environment (like in a webapplication), you need to ensure, that
+an object is still the most recent version. In a webapplication, it is possible to initiate
+so called "long" transactions, with multiple human interactions. Consider the following
+application: An application presents the user an object in which she can increment a number.
+When the user presses the submit button, and the server receives the object, it can not
+be sure, whether that object is current. If it increments the number anyway, but something
+modified the number when the object was on screen, then possibly a wrong number will be
+the result.
+
+In this case, you can not @i{lock} the object when you give it to the user, because in a
+web environment, it's not guaranteed, that the object will come back. The user could just
+close the browser and then you would have a lock which won't be unlocked. To avoid this,
+and still offer something lock-like, BeanKeeper offers the chance to ensure that an
+object is still current when locking. This way, the server could lock the object which
+comes back, and it could be sure that the object has not changed in the database.
+
+Note, ensuring that an object is current does not mean, that it has the same attributes
+as the last version. It only means, that since the object in question was selected from the
+database no new versions were commited.
+
+To ensure that an object is current, you call @code{lockEnsureCurrent}:
+@example
+store.getLockTracker().lockEnsureCurrent(obj);
+@end example
+
+After the call, it is guaranteed, that the object was not modified in the database since
+it was selected, so it behaves @i{as if it were locked since it's selection}. If the object
+was modified, the usual @code{ConcurrentModificationException} is thrown.
+
+Because you can lock classes too, you can also ensure that a class has not been modified:
+@example
+store.getLockTracker().lockEnsureCurrent(Book.class);
+@end example
+
+A class is ensured to be current from the following date (whichever came first):
+@itemize @bullet
+@item The first @code{save()} or @code{remove()} call in the transaction.
+@item The first selected object in the lock list (when class is locked with other objects).
+@end itemize
+
+If there is no transaction, or no other object to lock with, then the call equals
+a simple lock.
+
+@chapter Event delivery
+
+BeanKeeper generates events for each object modification in a node (a node is a @code{Store} object
+and the associated BeanKeeper context). These events can be captured and processed by user code, by
+implementing the @code{hu.netmind.beankeeper.event.PersistenceEventListener}. This interface
+has only one method:
+
+@example
+void handle(PersistenceEvent event);
+@end example
+
+A listener implementing this interface can be registered into the @code{EventDispatcher} to
+receive events. The delivered events will only come from the @strong{local} node, so no
+remote events will be received. What's more, the events will be delivered in the same
+transaction in which the event occured, which means if the event handler does some database
+operations, those operations will commit with the original transaction, which generated
+the event.
+
+It is not advised to do non-database operations in these handlers, because the modification
+indicated by the event may be rolled back at the end of the transaction. If a non-database
+operation was made, it may not roll back together with the transaction.
+
+The following events are currently available (see apidoc):
+@itemize @bullet
+@item Item added to a container type (Collection or Map)
+@item Item removed from a container
+@item A container is cleared (@code{clear()} was called)
+@item An object was created (it was saved when it was not yet in the database)
+@item An object was modified
+@item An object was deleted from the database
+@end itemize
+
+Note, that when the event is delivered, the indicated change has already happened, which is
+reflected in the database too. The events are generated in @code{save()} and @code{remove()}
+operations, so not when the object's attribute changes, but when you try to save the
+changes, or remove the object,
+
+@chapter Queries
+
+@section Making The Query
+The query service of the library is accessed through one of the four finder methods of the @code{Store} object:
+@itemize @bullet
+@item @code{find(String statement)}
+@item @code{find(String statement, Object[] parameters)}
+@item @code{findSingle(String statement)}
+@item @code{findSingle(String statement, Object[] parameters)}
+@end itemize
+
+These methods all receive a @i{statement} string first. This statement's full syntax is described in @i{Appendix A}, and this chapter
+will also deal with all of the features of this finder statement. Additionally parameters may be passed in the optional object 
+array. As in SQL, the statements may contain placeholder question marks ('?'), which will be substituted in-order by the parameters
+given. The @code{findSingle} methods are convenience methods, which return exactly one object, or null if no objects match the
+query. If multiple objects match, an arbitrary one is returned.
+
+Note on SQL injection: The statement given will be compiled into an SQL statement, all primitive values in the statement
+will be inserted into the sql statement with the use of @code{PreparedStatement.set*} methods, and none of them will be
+literally included in the sql statement string. This is true for all primitive values such as strings, numbers, dates and parameters
+given in the parameters object array. Also, the query statement string, can be hijacked under no circumstances to update/delete
+or in any way alter the database, it will always compile into a select statement. This means, you can freely create such a statement
+with the concatenation of conditions and input from the user, without fear of altering the data in the database. Be aware however,
+that depending on your algorithm, the user might still change your statment in the following ways: add conditions, messing up
+paranthesis balance, supplying junk characters into the statement. So a bit of attention is still required, although no
+destructive attacks are possible.
+
+Some other libraries prefer, or at least offer a programmatical way of setting up a query. This is used mostly to
+avoid SQL injection, and some purists prefer it because it blends well with Java itself.  We think however, that
+a readable query is maintanable and more easy to read than multiple rows of Java code, so the library does not offer
+programmatic interface to the query engine. You may however implement one in your application if you desire so.
+
+Note on case sensitivity: All queries are case insensitive, you can mix uppercase and lowercase letters any way
+you want. All identifiers and operators are case-insensitive, even classnames and attributenames. The only case
+sensitive part of a query statment, are strings which are enclosed in apostrophes.
+
+All queries are also @i{distinct}. That means no two objects are contained in the result list that are of the same
+identity, so from the same phisical row, or to put it another way, have the same @i{persistence_id}.
+There are a few exceptions however. When the query returns an object, which has an attribute of type @code{byte[]}, or
+any of it's subclasses or superclasses have an attribute of type @code{byte[]}, then the result will @strong{not} be
+distinct. This is because not all databases support comparing @i{BLOB}s. Also, distinctivity is modified, when the
+statement contains an @i{order by} term, which references an attribute not in the returned class. This namely causes
+the library to include that attribute into the selected attributes, in which case this may make the distinctivity
+more strict.
+
+@section Lazy Result Lists
+
+Before diving into the syntactical depths of the query language itself, a word is needed about the return value of the finder methods.
+All finders return a @code{List} object. This object implements all methods of the @code{List} interface, exactly as
+a normal @code{List} would do, such as a @code{Vector} or @code{ArrayList}. However, this is a special @code{LazyList}, which does
+not load all result objects all at once, but just a handfull of those which are likely to be used by the caller. Despite this,
+calling the @code{size()} method will return the full size of the result, so all paging and memory handling is totally transparent
+to the caller. 
+
+When a select is issued to the library, it will at first select a few dozens objects to the @code{LazyList} it will return. If it 
+senses that more objects are available, it will also issue a @i{count} statement with the same conditions as the original statment
+to determine the full size of the possible result list. This way, the @code{LazyList} will known the exact size of the resultset
+it represents, but it does not need to contain all resulting objects.
+
+Also, rule number one of resultlists is, you do not talk about.... err.. I mean @strong{result lists do not change}. Ever.
+This is a very important rule, because this way, the size of the resultlist also never changes. It is enough to determine
+the full size at the very first query. The list can leave the transaction it was created in, and can be maintained 
+indefinitely without using unnecessary resources, without ever changing it's contents, even if all objects are long
+deleted from the database (keep in mind, the library keeps object @i{version}s).
+
+@section Finding Objects
+
+The query statement syntax is object oriented, so do not think about tables, indexes, primary keys and such. Just
+express the query in the form the most natural for objects.
+The most simple query statement is of the form:
+@example
+find book
+@end example
+The first word of the query is always @i{find} (or @i{view} as described in the next section). After @i{find}, you must
+specify which class to select. The example will select all @code{Book} classes available in the database. Note, that
+the language is case-insensitive, even with classes, so @i{book} also means @i{Book}. The full Java code to execute
+this statement would be something like this:
+@example
+List allBooks = getStore().find("find book");
+@end example
+In the following examples we assume, you know how to execute the statements, so we will only write the statement itself, and
+not the Java code.
+
+Traditional joins, such as cross joins, left joins and other things like these are not directly supported. The classes that need
+to be included in the statement will be dynamically calculated when the statement is analized. Let's continue with another
+example, selecting a book based on it's author (which is an attribute of @code{Book} and of the @code{Author}):
+@example
+find book where book.author=author and author.name='Neal Stephenson'
+@end example
+The library itself will figure out that the table for the @code{Author} class will have to be joined to the @code{Book} class,
+you do not have to worry about that. Of course, this is an object oriented language (tries to be anyway), so the above
+can be expressed much simpler:
+@example
+find book where book.author.name='Neal Stephenson'
+@end example
+Sometimes it's necessary to assign aliases to classes, to keep apart instances of the same class inside the statement:
+@example
+find book where book.author=snow(book).author and snow.title='Snow Crash'
+@end example
+The above statement selects all books, which are written by the same person as the book titled @i{Snow Crash}.
+As you see, the word @i{snow} is an alias, and of type @code{Book}. The first time, you refer to the alias, you must
+define it's type, and all subsequent references can just consist of the alias itself. Until now, all class references
+were an abbreviated name of the classnames themselves, which is probably the most used form, but if you want, you can
+also specify the fully qualified class, but then, you must use the alias construct to give the class a
+shorter, more readable name:
+@example
+find book(com.acme.bookstore.Book) where book.title='Snow Crash'
+@end example
+This is useful, if you have a classname that is not unique within your application. For example, if there is a @code{Book}
+class in the @code{com.acme.bookstore} package, but also in the @code{com.acme.bookrental} package, you have to specify
+the package name also, so the library can determine the class unambigously. You don't have to write all package names, just
+until the point it becomes unambigous, so this is also valid:
+@example
+find book(bookstore.Book)
+@end example
+
+Expressions after the @i{where} keyword can be any expressions known from @i{SQL}, which consist of the supported @i{operators}
+and constructs. Most operators like @code{=}, @code{<>}, @code{>=}, @code{not null}, @code{null}, etc. are supported, 
+also the most common logical operators such as @code{or}, @code{and} and @code{not} are also supported. See @i{Appendix B} for
+a complete list of operators. Important to note, that string operations are case-sensitive by default (see the @i{like}
+operator), only the @i{ilike} operator offers case-insensitive string search.
+
+The result can be ordered using the @i{order by} keywork. This works exactly like in @i{SQL}, except that it may reference
+attributes through multiple levels.
+@example
+find book order by book.title asc
+@end example
+The @i{ascending} or @i{descending} keyword is optional, @i{ascending} is default. Order by attributes may not necessarily
+be a part of @code{Book}:
+@example
+find book order by book.author.name
+@end example
+And, multiple ordering statements can be specified, just like in @i{SQL}:
+@example
+find book order by book.author.name, book.title desc
+@end example
+
+@section Polymorphism
+
+BeanKeeper uses polymorphism when selecting objects. If you have a @code{Writing} 
+and @code{Book} class such as:
+@example
+public class Writing
+@{
+   private String title;
+   private Author author;
+
+   ...getters, setters...
+@}
+
+public class Book extends Writing
+@{
+   private String isbn;
+
+   ...getter, setter...
+@}
+@end example
+And you have a few inserted @code{Book}s, and @code{Writing}s, the following query will potentially return both
+@code{Book} and @code{Writing} instances:
+@example
+find writing where publishyear > 2000
+@end example
+
+BeanKeeper keeps track of all classes it ever encountered, so you are free to select for any superclasses, interface
+classes you like. In an extreme case, you can even issue:
+@example
+List objects = store.find("find object");
+@end example
+Which will return @i{all} objects currently inside the database. Of course this particular query is rarely needed, if ever. 
+
+@section View Selects
+
+Sometimes it is necessary to return multiple attributes which are not part of the same class. These types of queries are often
+used for reports, or other forms of aggregated data retrieval.
+
+For example, in our bookstore application, we want to generate a report with potential @i{ISBN} number conflicts, because these
+indicate that something has been mistyped, or worse. To do this report with the @i{find} keyword, we have to do the following:
+@example
+find book1(book) where book1.isbn=book2(book).isbn
+@end example
+But this only lists one of the conflicting books, so to display both of the conflicting books, we must make another select
+@strong{for all rows}.
+@example
+find book2(book) where book2.isbn=book1(book).isbn and book1=?
+@end example
+Where the question mark holds the place of the current @code{Book} object in the row, which will be passed as an item in the @i{parameters
+array}. Obviously this generates a lot of selects, one select @strong{for each row}.
+
+Instead, the @i{view} keyword offers to select multiple attributes into one result. The above can be written as:
+@example
+view book1(book).title t1, book2(book).title t2 where book1.isbn=book2.isbn
+@end example
+All @i{view} selects will be also return @i{LazyList}s, but they will not be populated by instances of the selected class,
+but @code{Map}s. These maps will contain every attribute the statement specified to select. The maps' keys will be
+either the @i{alias} names of the attributes, like in this case @i{t1} and @i{t2}, or when no alias is given, the
+attribute names themselves will be used.
+
+@chapter Historical Data
+
+BeanKeeper keeps versioning all objects. By default none of these objects are deleted physically ever,
+and all historical object information is available for selection. Historical selects return the resultset which @strong{exactly}
+matches the resultset that would be returned if the query was ran at the date specified.
+
+@section Query
+
+The syntax of the query is:
+@example
+find right where right.subject.name='Joe' at ?
+@end example
+The above example lists the rights of Joe, which Joe posessed at a given date.
+The interesting part is the "@i{at ?}" construct. The date of the query must be submitted as a standard query parameter, so
+a full historical select could be something like this:
+@example
+Date yesterday = computeYesterday();
+List yesterdaysResult = getStore().find("find right where right.subject.name='Joe' at ?", new Object[] @{ yesterday @});
+@end example
+
+Note, that historical queries do not return objects @strong{inserted at} the given date, but results, like the
+@strong{query} was executed @strong{at} that date.
+
+@section Concurrency
+
+Historical queries behave as their non-historical alteregos. All queries see all modifications made inside the same transaction
+they were executed in, but no modifications of other transaction during running. So if a historical query points to a past
+date on which the current transaction was still active (say, 2 seconds in the past), then all modifications of the current
+transaction up until that point are visible. But usually, a historical query points much further into the past, and
+usually points beyond the start of current transaction, in which case, it sees only commited transactions. It is not possible
+to make a historical query which points into the middle of a transaction! All transactions are visible like they were
+created in an exact instant in time, no temporary phases are visible, not even in historical queries. All transactions
+are made visible at the single millisecond (in fact, the scale is finer than that) when they are commited, 
+even if the transaction lasted several seconds or even minutes.
+
+@chapter Dynamic Objects
+
+@section What are they?
+
+It is possible with BeanKeeper to create so-called dynamic objects, which are basically instances of runtime
+defined classes. To mark an object as "dynamic", it's class must implement the @code{DynamicObject} interface:
+
+@example
+public interface DynamicObject extends Map
+@{
+   String getPersistenceDynamicName();
+   void setPersistenceDynamicName(String dynamicName);
+@}
+@end example
+
+And additionally it must offer the following @strong{static} method:
+@example
+public static Map getPersistenceAttributeTypes(Class c, String dynamicName);
+@end example
+
+There are two aspects to dynamic objects. First, they define which attributes the object holds. These attributes
+are stored in the object through the @code{Map} interface. The @code{getPersistenceAttributeTypes()} method
+returns a mapping between attribute names and their types (Integer, String, Date, beans, etc.). The
+attributes defined in this map are stored in the database, the same way they would be stored, if they were
+"static" member attributes of the class. Additionally all inherited or local member attributes are
+also stored, like in normal case. This map may change runtime, in which case the library will adjust
+the database table accordingly: if an attribute is removed, the corresponding table column will be dropped, and
+if an attribute is added, a column is added to the table. When the object is loaded, the library will set
+all attributes in the database through the @code{put()} method of the @code{Map} interface.
+
+Implementation note: You can easily subclass the @code{HashMap} class to fulfill the @code{Map} interface specification,
+because the library disregards all super- or sub-classes of dynamic objects. This also means these can not be
+subclassed.
+
+The second aspect is, that they also can define their "classname". Why would they want that? Because each different
+class is treated as a separate entity. They can be referred to in query statements with their dynamic name, they have
+their own table with their own schema. Suppose, you are building an application to store a user's all acounts to all
+systems.
+
+The following code demonstrates all aspects of dynamic objects:
+@example
+public class Vehicle extends HashMap implements DynamicObject
+@{
+   private transient String persistenceDynamicName;
+   
+   public int wheelCount;
+   public int doorCount;
+   public String licensePlate;
+
+   public static Map getPersistenceAttributeTypes(Class c, String dynamicName)
+   @{
+      ...get application specific types, for example
+         dynamicName: Car
+         dynamicName: Truck
+         etc., and return specific attributes for them...
+   @}
+   
+   ..setter getters...
+@}
+@end example
+
+Let's consider an application, in which the programmer does not know which types of
+Vehicles will be kept in the database, but he makes some userinterface on which
+the user can create new vehicle types, and can specify attributes for that kind of
+vehicle. All these specific "dynamic" Vehicle types will be defined runtime, and all
+will subclass the Vehicle class. The dynamic name can be considered the classname,
+for example: Car, Truck, Tank, etc.
+
+So all dynamic Vehicle types are maintained in the application's database. To create
+an instance of "Car", which is a dynamic class, one must execute the following code:
+
+@example
+Vehicle car = new Vehicle();
+car.setPersistenceDynamicName("Car");
+@end example
+
+To set Car specific attributes, one must use the @code{Map} interface. When the object
+is read back from the database, BeanKeeper will set the dynamic name through the
+@code{setPersistenceDynamicName} method, this is why the class should store it's dynamic
+name in a transient attribute.
+
+Additionally the @code{getPersistenceAttributeTypes} method generates a Map of 
+attribute name-type pairs from the application's own data about that dynamic type. This
+data is used by BeanKeeper to determine which attributes are to be saved from the Map
+(rememeber, the object implements Map), and which are to be loaded when selected.
+
+Using this mechanism dynamic classes can be created runtime, but the type's data must
+be managed by the application itself.
+
+@chapter Scalability
+
+@section Downward scalabilty
+
+The library will adapt to most environments, including low-memory, single @code{Store} architectures.
+The memory requirements are proportional to the objects used, and the memory requirements of the user
+application itself. This means that caches only grow, if the memory expands on behalf of the user
+application, and internal object state trackers only add overhead to existing objects.
+
+The conclusion is, that the library is capable of running in a few megabytes, with a startup time
+in the low seconds.
+
+@section Upward scalabilty
+
+As described in the previous section, the memory footprint, size of cache will adapt to the memory
+requirements of the user application. This also means, that is the application uses hundreds of megabytes,
+the library will proprotionally allow itself (and the cache) to use up memory as it becomes available.
+
+The library is also capable of running in a @strong{distributed} environment. This means, that in webapplications
+which are deployed in a clustered server, or load-balanced server cluster. To do this, the library establishes
+connection with the other libraries (referred to as @i{Nodes} in this context), which are connected to the
+same database. The number of Nodes connected this way is not limited, it can be two Nodes, or even a hundred.
+This connection between Nodes ensures, that all guarantees which are present on a single Node are extended to
+all Nodes in the cluster. For example if another Node locks some objects, any other Node accessing them will
+receive a @code{ConcurrentModificationException} the same way, as they were in the same JVM.
+
+When there are multiple Nodes to a database, the Nodes appoint a server Node to coordinate locks, semaphores and
+other exclusive resources between them. All other Nodes become client Nodes. If a client Node disconnects
+from the cluster, it has no effect on the other Nodes, all operations continue as if nothing happened. Of course
+all operations in this disconnected client will throw exceptions, until it can reconnect. When a client reconnects,
+all operations which depend on some state in the server will cancel. This means, if the client started a Transaction
+earlier, this Transaction will be rolled back instead of commited, because even if the Node successfully
+reconnected, the server may in the meantime re-assigned the used resources to some other Node. If a server
+is removed from a cluster, the remaining Nodes appoint a new server Node, and continue working, with the
+effects of a reconnect (Transactions rolled back, cache cleared, etc.).
+
+The conclusion is, that BeanKeeper is capable of scaling to a large cluster easily, without
+any configuration, and can re-organize itself in case of a failure mostly without any effects visible.
+
+@chapter Internal Caches and Pools
+
+@section Connection Pool
+
+The @code{Store} object can be instantiated in two different ways. Either a @code{DataSource} is given as the source
+for database connections, or the database @code{Driver} and the @i{URL} of the database is given. Either case, the
+library maintains a pool of connections at all times. The pool's size is determined dynamically by the load. When
+a new connection is requested from the pool, and there is no available pooled connection, the pool allocates one
+from the connection source (from the @code{DataSource} or @code{Driver}). After a given amount of time, if a connection
+is not used, it is closed, and removed from the pool.
+
+The library also keeps a shutdown hook on the @i{JVM}, so when the @i{JVM} exists, all pooled connections are closed.
+If a transaction was running on a connection, it will be rolled back. Also, if you use the @i{JVM}'s shutdown hook
+to do some jobs, you can not rely on the library to function, as it may already have closed all connections, and freed
+all resources.
+
+@section Results Cache
+
+The library uses a flat read-only cache, which means, that it does not take versioning into consideration. It only caches
+actual data, which are likely to be used many times. This means not all queries will be cached:
+@itemize @bullet
+@item Historical queries are never cached.
+@item Queries with which the query's transaction interferes are also never cached.
+@end itemize
+
+Historical queries are not used regularly, so they are never cached. Also, probably the memory usage would outweight
+the benefits of a cache if they would be handled.
+
+If the query would return a resultset which is influenced by the current transaction, that means, that the modifications
+made prior to the query are not independent of the query, then this result set would be not usable for other transactions
+currently, since these modifications are currently not visible to the others, until this transaction commits. So until
+then this query won't be cached. If the transaction commits, then the cache is notified which tables are changed, and
+all query results which may have changed are discarded from the cache.
+
+The memory allocation of the cache is fully dynamic. The cache will match the used memory size to the footprint of
+the application (or more exactly the @i{JVM}). If the application is under heavy load, it usually causes the @i{JVM}
+to allocate more heap, then the library's cache will also use more of that memory. If the application is running
+in a low-memory mode, the library will only use little memory for the cache. For this to work, the cache
+inspects the @i{free/total memory} ratio, and determines upon that ratio if more memory can be used for the purposes
+of the cache.
+
+The cache strategy is also very simple:
+@itemize @bullet
+@item All new resultsets are cached, and receive a timeout of T.
+@item If a resultset reaches it's timeout, it is removed from the cache.
+@item If a resultset receives a cache hit, T is added again to it's timeout.
+@end itemize
+This basically means, all resultsets (which are considered for caching), are always cached, and have a chance to remain
+in the cache indefinately. All resultsets in the cache have a timeout, and if they are not accessed in that time,
+they are removed from the cache (even if there is enough memory). A cache entry can stay in the cache, if it receives
+hits, and all hits buy it again some more time.
+
+@chapter Performance considerations
+
+However easy it is to implement a persistence layer with BeanKeeper, still, special care may need to be
+exercised to create an application which has the right performance. There are a few rules which generally help
+to design your object model, and your application:
+
+@itemize @bullet
+@item Don't try to reimplement features. This means: don't try to duplicate relation handling, history, or
+any feature which is already taken care of. Usually you can not implement such things more efficiently as the
+database.
+@item @strong{In BeanKeeper simple things are inexpensive, complex things are usually expensive}. There are a few
+exceptions of course.
+@end itemize
+
+What is the metric of performance? It is really hard to measure the performance of an ORM (Object/Relation Mapping)
+software, because there is no definite (standard) set of operations or situations you could think of,
+which represents real-world usage of all possible applications. That's why, you probably have to think about
+the possible usage patterns of your specific application, and determine which functions or operation
+combinations you would like to compare.
+
+The following sections describe the operations of BeanKeeper, and their usual performance with the
+number of sql operations it has to execute to complete said operation.
+
+@section Save operations
+
+To @code{save()} an object, the following operations occur:
+
+The current version of the object is read from the database, using
+@i{one select operation}, if the object exists and it seems it was
+modified but too long ago for the library to remember, or from a different
+node.
+
+All changed non-container type attributes are saved using
+@i{one save and one insert operation, as many times as many
+sub-classes are changed}. This means, a simple class (with no
+subclasses, and only primitive attributes) is usually saved 
+with 1 update and 1 insert operation.
+
+Saving container type (Collection,Set,List,Map) attributes is described
+in a separate chapter.
+
+If the object is related to a non-existing object, either directly
+through an attribute reference, or through a container type, that object
+will be saved too.
+
+@section Remove
+
+The @code{remove()} method executes exactly @i{as many update
+operations, as the number of subclasses the object has}.
+Subclasses inside the java.* package are not considered real
+(persisted) subclasses, so those, and interface types don't count.
+
+@section Transactioning
+
+All transactions have possible overhead sql executions, if there was some @code{save()} or @code{remove()}
+operations inside the transaction. It is worth to note, that if you don't explicitly define
+a transaction, those operations still open their own transaction to run in.
+
+When @code{commit()}-ing a transaction, it has to execute @i{an update statement for all
+modified tables}. If none were modified, then none will be executed.
+
+This also means, if you have multiple @code{save()} or @code{remove()}
+operations in a batch operation, it is recommended, that you execute all
+in a single transaction. This way, there will be only a single transaction
+overhead, as opposed to as many transaction overheads, as many @code{save()}
+or @code{remove()} calls you make.
+
+@section The "find" query
+
+To compute the performance of a query operation is not a simple task.
+Generally, simple queries will cause less physical statements to run,
+and complex (not usual) queries will cause more select statements to
+be executed.
+
+The first thing to consider, is that the library takes care of
+result list paging, and all figures below apply to
+a single page. A page is by default 30 rows/objects, which may
+grow to as much as 2500 (by default), if linear iteration is detected.
+So the first thing you do, is compute the number of pages in which you get the
+data, and you must muliply the below numbers with the number of pages.
+
+In a simple case, when the object you @code{find()} has only primitive
+attributes, there will be exactly @i{one select statement executed}.
+
+All container type attributes will cause 0 physical statements
+on loading, because they only start to work, when first used.
+
+There will be exactly @i{one select statement} for all non-primitive,
+non-container type attributes however, @i{in all reference depths}!
+This means, that first, we must determine the reference depth for
+an object. If the object only contains primitive attributes, the
+reference depth is 0. If the object refers directly to other objects,
+but those object do not refer to anything, then the reference depth
+is 1. If those refer again to other objects, then 2, etc.
+On each level of reference, count the number of attributes which
+refer to other objects, and add them for all depths to compute the
+total number of selects the library need to execute to load
+the whole @strong{reference tree}.
+
+For example if a Book refers to a single Author, and the Author
+refers to a single Address object, and a single Contact object,
+then selecting Books will result in a reference tree, which
+has 2 levels. On the first depth it has 1 attribute of reference
+(book.author), on the second, it has 2 (author.address,
+author.contact). So the total number of selects to load a page
+of books is 1 select (for the book) + 1+2 selects to load
+the reference tree (4 total).
+
+And the above is only the simplified version. If the loaded
+object is not a specific (persisted) class, but an interface type,
+or an object from the java.* hierarchy (for example java.lang.Object),
+then the objects are not loaded with one select. In this case,
+usually there is @i{one select} to determine which type matches
+the select anyway, and there is @i{one select, for each persisted
+(normal) class} the library has to load. In this case the above equations
+will have to be multiplied by this number. So if you select
+for a java.lang.Comparable, and there are 3 of your classes
+implementing this interface, then 3 selects will be executed
+for this query operation.
+
+If the a class hierarchy is big, so the number of subclasses (and superclasses) for a class
+exceed a limit (by default 16), then the loading will again become more complex.
+In this case, the page number will be limited to 16, and again @i{one select}
+is required to determine which exact classes will be on the page, and @i{one
+select, for each class}.
+
+@section "View" queries
+
+All view queries are exactly @i{one select}. Relations will not be
+resolved, container types will not be loaded, only primitive attributes
+will be usable.
+
+@section Containers
+
+All container types use standard queries to load. This means, all conform to the
+loading performance described in the previous chapters. So if all items in a container
+are of the same class, and this class contains only primitive attributes, then the loading
+takes @i{one select per page}. If they are more complex, then the loading will be more 
+complex too.
+
+In general, containers are saved when the parent object is saved. So until then modification
+operations rarely need a physical statement to execute. The following tables describe the
+performance characteristics of the given container type:
+
+@subsection List
+
+A list is an ordered item container, which can hold duplications of the same item.
+
+@table @samp
+@item add
+0 sql operations, but may need the items near the inserted index.
+If that's not on the current page, then loading may occur.
+@item addAll
+An @i{add} operation for each item in the collection given.
+@item clear
+0 sql
+@item contains
+1 sql operation.
+@item containsAll
+A @i{contains} operation for each item in the collection given.
+@item equals
+Potential linear iteration on list and operand too.
+@item get
+Similar to LazyList. If the requested item is on the current page,
+then no loading occurs. Else the required page is loaded.
+@item hashCode
+Linear iteration on all items.
+@item indexOf
+2 sql selects
+@item isEmpty
+May require operation if size is not yet known.
+@item lastIndexOf
+2 sql selects
+@item remove
+If index is given, then no operation. If object is given, an @i{indexOf} operation.
+@item removeAll
+A @i{remove} for all items given.
+@item retainAll
+Linear operation in this list, and a @i{contains()} call for each item in the
+given collection.
+@item set
+A @i{remove} and an @i{add}.
+@item size
+Possible operations if size is not yet known.
+@end table
+
+When a List is saved, there is @i{one update for each removed item}, there
+is @i{one insert for all added items}, and @i{one update if the list was cleared}.
+Additionally, in a few occasions the implementation may need to re-index the list,
+if it ran out of indexes. In this case there is @i{an insert and update for
+all items}. Re-indexing occurs, if there were many insertions between existing
+items. There will be no re-indexing ever, if adding only to the list's begining or
+end.
+
+@subsection Set (and Collection)
+
+A set is an unordered item container, which can not hold duplications of the same item.
+
+@table @samp
+@item add
+A @i{contains} operation.
+@item addAll
+An @i{add} operation for each item in the collection given.
+@item clear
+0 sql operations.
+@item contains
+1 sql operation.
+@item containsAll
+A @i{contains} operation for each item in the collection given.
+@item equals
+1 sql operation.
+@item hashCode
+Linear iteration on all items.
+@item remove
+A @i{contains} operation.
+@item removeAll
+A @i{remove} for all items given.
+@item retainAll
+Linear operation in this list, and a @i{contains()} call for each item in the
+given collection.
+@item size
+Possible operations if size is not yet known.
+@end table
+
+When a Set is saved, there is @i{one update for each removed item}, there
+is @i{one insert for all added items}, and @i{one update, if the set was cleared}.
+
+@subsection Map
+
+A map is a mapping of String keys to objects.
+
+@table @samp
+@item put
+A @i{contains} operation.
+@item putAll
+An @i{put} operation for each item in the collection given.
+@item clear
+0 sql operations.
+@item containsValue
+1 sql operation.
+@item containsKey
+1 sql operation.
+@item equals
+1 sql operation.
+@item get
+1 sql select.
+@item hashCode
+Linear iteration on all items.
+@item remove
+A @i{get} operation.
+@item removeAll
+A @i{remove} for all items given.
+@item retainAll
+Linear operation in this list, and a @i{contains()} call for each item in the
+given collection.
+@item size
+Possible operations if size is not yet known.
+@end table
+
+When a Map is saved, there is @i{one update for each removed item}, there
+is @i{one insert for all added items}, and @i{one update, if the map was cleared}.
+
+@chapter Logging and Profiling settings
+
+The library uses Apache Log4j logging library. See @uref{http://logging.apache.org/log4j/docs/}
+for more details how to configure it.
+
+The default logging level for BeanKeeper should be INFO. On this level, no messages should
+be visible when in use. On DEBUG level, the logging is @strong{very} verbose, you
+should not use this level unless you are tracking a bug in the library and want to see
+everything that happens.
+
+There is however two services, which you may find useful to enable. The first is the profile
+logging. This is a service, which in given intervals gives different profiling data from
+the BeanKeeper internals. Useful for tracking memory, or connection pool problems.
+To enable it, include this in the log4j.properties file:
+
+@example
+log4j.logger.hu.netmind.beankeeper.ProfileLogger=DEBUG
+@end example
+
+This will cause the logger to regularly (5 seconds by default) output a peak of
+the current profile status. There are multiple possible profile outputs into the log
+file:
+
+@example
+ ...
+ [connectionpool:300] Connection used/pool/wrappers: 1/4/4
+ ...
+ [weakmap:161] Current map sizes: 0,0
+ ...
+ [sharedmap:22] Shared data size is: 1
+ ...
+@end example
+
+The first one is the status of the connection pool. The number '300' means,
+the profile logger received this many pool profile data events since the
+last output. The message contains the status of the pool according to the last
+event. It indicates, that there are 4 connections available, one is used.
+
+The second and third entries are just internal memory sizes of currently
+tracked objects. The more objects, the more memory is used. This used memory
+should always scale back when the garbage collector is run.
+
+The second service which can be useful is the performance logger. This logger
+works similarly as the profile logger, because this one displays the log messages
+in regular intervals too. But instead of showing the last event's message, it
+actually averages the values of the events. To enable this logger, write
+the following in the log4j.properties file:
+
+@example
+log4j.logger.hu.netmind.beankeeper.PerformanceLogger=DEBUG
+@end example
+
+The following messages will be generated:
+
+@example
+ ...
+ Update statement execution: 18 times, values: 5-1/59
+ ...
+ Query statement execution: 20 times, values: 3-1/8
+ ...
+@end example
+
+These lines indicate how many times the specified event 
+occured since the last display of the same event. And it
+also contains the statistics of the supplied value of the event (which 
+usually is the completion time in milliseconds).
+The statistics is in the form of: @i{avg}-@i{min}/@i{max}.
+So the first line says, that there was 18 update statement
+executions since the last display, and it cost 5 milliseconds
+on average. There was however at least one that cost 1 millisecond,
+and one that cost 59 milliseconds.
+
+@chapter Appendix A: Configuration
+
+BeanKeeper does not need to be configured in any way. However, if you want to tweak some settings,
+this chapter describes all parameters which can be tweaked. All settings are contained in a single file named
+@i{beankeeper.properties} in the root directory of the distributed @i{jar} file.
+What follows is a complete description of this file:
+
+@example
+cache.min_free_bytes=512000
+@end example
+
+This is the minimum free bytes the JVM should have before the cache accepts an entry without freeing some other
+entries. If the @i{JVM} has less than this, then already cached resultset are freed, before the new resultset is cached.
+Keep in mind, that the new resultset is always cached, no matter what happens.
+
+@example
+cache.min_free_rate=60
+@end example
+
+Same as above, but this time, the @i{free/total memory} rate is given in percentage. If the @i{JVM} has less, then
+some entries are freed from the cache. Note, that the @i{JVM} also usually allocates heap based on the @i{free/total memory}
+rate. Usually, at about 70% the @i{JVM} allocates more memory, and at 40% the @i{JVM} frees up heap, depending on your
+@i{JVM} implementation. But because of this, there are basically two strategies the library can use to allocate cache
+space:
+
+If the @i{min_free_rate} is more than the @i{JVM}'s maximum rate. Then the library will continue to use memory for the
+cache, and the @i{JVM} limit will be reached @strong{before} the @i{min_free_rate}, which means the @i{JVM} will detect
+that more memory is needed, and allocate more heap. This again causes the library to use more memory, which causes
+the @i{JVM} to allocate yet more, and so on. The net result is, that the cache will "agressively" use up all memory
+which the @i{JVM} can give. Note, that if in the meantime the application uses more and more memory, the cache will
+slowly give back memory because of the @i{min_free_bytes} rule.
+
+The second strategy is setting the @i{min_free_rate} below the @i{JVM}'s threshold. This means, that the library
+itself will never cause the @i{JVM} to get more heap. Instead, if the application grows, and more heap is available,
+then the cache can use more memory too. Once that memory is used, the cache may scale back, if the cache entries
+start to expire.
+
+@example
+cache.force_free_rate=2
+@end example
+
+When a cache detects, that is has no available memory (ether because @code{cache.min_free_bytes} or @code{cache.min_free_rate}),
+then it tries to free some entries. This parameter decides how many entries to free, in the @i{outgoing/incoming result size} ratio.
+If the incoming (new) result set contains 10 objects, then at least 20 objects will be freed, if the ratio is 2. This number
+should account for the differences in object memory footprint. As there is no reliable way to measure one object's memory
+footprint, if "large" objects enter the cache, and ther are only "small" objects in the cache, this ratio will ensure, that
+even in this case, approximately enough memory will be freed for the new objects.
+
+@example
+cache.expiration=60000
+@end example
+
+This is the amount of time in milliseconds, a new entry in the cache will survive if it received no hits. If the entry
+receives a cache hit, than this interval is again added to the expiration date.
+
+@example
+pool.connection_timeout=600000
+@end example
+
+The number of milliseconds an idle connection to the database will be kept before closing.
+
+@example
+net.connect_timeout=3000
+@end example
+
+The time in milliseconds a Node should wait before it declares a potential other Node unreachable. If
+this setting is high (many seconds) , it may cause the library to appear freezed, until it can declare the
+othe Node unreachable (this is possible during network failures). If it's low (appr. below a second), it may
+declare a Node unreachable, even if it is, which may result in the Node becoming unusable.
+
+@example
+node.timeout=10000
+@end example
+
+The maximum time in milliseconds a Node can wait to update it's heartbeat signal in the database. If this time
+passes, the other nodes may declare this Node dead if they are currently trying to appoint a server node.
+If setting @strong{must} be higher than the @i{heartbeat interval}. If this value is too close to the heartbeat
+interval, a Node can be declared dead when it is not, this can potentially lead to cluster fragmentation, which
+can lead to data corruption. If it's high, then dead Node entries may cause the Nodes to wait this long until
+they can appoint a new server (so a server fallout will cause all Nodes in the cluster to wait this long).
+It is highly recommended, that if you tweak this value, keep it at least 150% heartbeat, or at least 3 seconds higher.
+
+@example
+node.heartbeat=6000
+@end example
+
+This is the amount of time in milliseconds each Node will update the database table to signal other nodes, that it
+is still alive. This is very important to prevent cluster fragmentation, and potential data loss. The lower, the
+more frequently each node will issue an update statement to the database, but higher means, that the @i{timeout}
+value needs to be high too, which may cause wait periods when the cluster re-organizes itself.
+
+@example
+lock.expire_kept=1800000
+@end example
+
+The amount of time in millisecons a kept lock will expire in. 
+If this amount is small, kept locks will expire in short time,
+possibly causing large work-sessions to rollback due to locking
+problems. If this value is high, the memory usage is higher.
+Kept locks are locks which are basically unlocked, but they can not be
+re-locked by the same object unless they were not touched by
+others.
+
+@example
+list.batch_size=30
+@end example
+
+This is the number of objects a lazy list should contain at any given
+time. This is also the amount of objects returned from the database in
+a single operation, so internal paging is based on this number.
+The lazy list is the base for member lists and maps too!
+The greater the number, the more cpu and memory is used on a single
+select, but the frequency of selects becomes less, because more data
+is present. If the number is too small, the number of select operations
+increases.
+It is recommended to keep this number between appr. 20-50. If you
+use this in a web application, the optimal setting for this is the
+number of result rows your pages display, because all pages then can
+be selected in a single select.
+
+@example
+list.batch_size_linearmultiplier=3
+@end example
+
+This number is used to muliply the above batch size whenever the
+library detects, that the previous chunk was iterated linearly.
+This is used to make linear iterations more efficient.
+
+@example
+list.batch_size_max=2500
+@end example
+
+This is the maximum batch size of the lazy list. When this number is
+high, linear iterations will consume more memory, but statement
+executions become rarer. If this number is small, linear iterations
+will become generally slower.
+
+@example
+list.max_joins=16
+@end example
+
+This is the maximum number of left join tables a single select can contain.
+All subclasses of a selected class are selected with a left join, so all
+superclasses which have many subclasses (more than this
+number) will be split into more queries. This number is physically
+limited by the maximum number of tables per select the database supports
+(usually a few hundred). Setting this value low will yield more query 
+executions, setting it high will make fewer, but more expensive selects.
+
+@example
+profile.interval=5000
+@end example
+
+The number of milliseconds between profiling outputs.
+
+@example
+performance.interval=5000
+@end example
+
+The number of milliseconds between performance outputs.
+
+@chapter Appendix B: Supported Databases
+
+Because not all databases can offer the same features, there may be limitations using specific databases. This chapter
+enumerates all supported database engines, and their possible issues.
+
+@table
+
+@item MySQL (5.x)
+@itemize @bullet
+@item @i{InnoDB} support must be compiled into mysql.
+@item Can not support more than 255 characters in map keys.
+@item Date fields are only stored in @i{seconds} precision.
+@end itemize
+
+@item PostgreSQL (7.4.x,7.5.x)
+No explicit limitations known.
+
+@item Oracle (9.x,10.x)
+@itemize @bullet
+@item Strings are limited to 1024 characters.
+@end itemize
+
+@item HSQLDB (1.8.x)
+@itemize @bullet
+@item Can not be used from multiple Store instances.
+@end itemize
+
+@end table
+
+@chapter Appendix C: Query Syntax
+
+@example
+query        ::= FIND maintable [WHERE expression] [ORDER BY orderbys] [AT DATE]
+             |   VIEW references [WHERE expression] [ORDER BY orderbys] [AT DATE]
+
+orderbys     ::= orderby [, orderby]*
+
+orderby      ::= refterm [<direction>]
+
+expression   ::= ( expression )
+             |   expression LOGICAL_OPERATOR expression
+             |   UNARY_LOGICAL_OPERATOR expression
+             |   condition
+
+condition    ::= term OPERATOR term
+             |   term UNARY_OPERATOR
+
+term         ::= STRING
+             |   NUMBER
+             |   DATE
+             |   OBJECT
+             |   tablespec [. attrspec]
+
+references   ::= refterm [IDENTIFIER] [, refterm]*
+
+refterm      ::= tablespec [. attrspec]
+
+attrspec     ::= [attrspec .] attribute:attr
+
+attribute    ::= IDENTIFIER [ '[' STRING ']' ] [ ( IDENTIFIER ) ]
+
+maintable    ::= tablespec
+             
+tablespec    ::= IDENTIFIER [ ( qualified_identifier ) ]
+            
+qualified_identifier 
+             ::= [ qualified_identifier . ]* IDENTIFIER
+
+@end example
+
+@chapter Appendix D: Query Language Operators
+
+@section Logical operators
+
+Following boolean operators can be used in expressions:
+
+@table @samp
+@item and
+Infix logical @i{and} operator.
+@item or
+Infix logical @i{or} operator.
+@item not
+Prefix unary negation operator.
+@end table
+
+@section Arithmetic operators
+
+The following operators can be used, with the usual arithmetic meaning:
+
+@table @samp
+@item =
+@item !=
+@item <>
+@item <
+@item <=
+@item >
+@item >=
+@end table
+
+@section Special operators
+
+@table @samp
+@item is not null
+Unary postfix operator, "@code{attribute} is not null" evaluates to true exactly if the @code{attribute} is not null.
+@item not null
+Unary postfix operator, "@code{attribute} is not null" evaluates to true exactly if the @code{attribute} is not null.
+@item is null
+Unary postfix operator, "@code{attribute} is not null" evaluates to true exactly if the @code{attribute} is null.
+@item like
+Behaves exactly like the @i{like} operator in @i{SQL}. It searches the given @code{attribute}, which
+should be of type @code{String} to match the given parameter. 
+The percentage (@i{%}) sign is a wildcard matching a string of any characters. This operator is @i{case-sensitive}.
+@item ilike
+Like the @i{like} operator, but this is @i{case-insensitive}.
+@item contains
+This is a special operator, which is usable with @code{List} and @code{Map} attributes. "@code{attribute} contains @code{object}"
+evaluates to true, if the specified attribute is a @code{List} or @code{Map} and contains as a value the specified @code{object}
+(false otherwise). Note: Operator can not be negated, either directly nor indirectly, because it would not mean what you think
+it would mean. If the operator is negated, an exception will be thrown.
+@end table
+
+@summarycontents
+@contents
+@bye
+
+
+
+

@@ -1,0 +1,20 @@
+Features
+~~~~~~~~
+
+- Easy to use
+- No configuration necessary.
+- Small library size.
+- Supports PostgreSQL, MySQL, Oracle, HSQLDB
+- Own straight-forward, simple query language
+- Supports transactions
+- Supports polymorphism (selecting for superclass will return all subclasses too)
+- Can save any bean (does not use Serializable/Externalizable stuff)
+- Transparent handling of references to other beans
+- Can handle circular-, or self-references
+- Can save Lists and Maps
+- View selects
+- All queries are now transactions safe, no matter what you do,
+  result lists stay the same.
+- Distributed, scalable operation.
+- Dynamic objects (classes and attributes)
+

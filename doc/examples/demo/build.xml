@@ -1,0 +1,38 @@
+<project name="examples" default="compile" basedir=".">
+
+   <path id="all_classpath">
+      <pathelement location="build" />
+      <pathelement location="lib" />
+      <fileset dir="lib" includes="*.jar" />
+   </path>
+
+   <target name="clean">
+     <delete dir="build"/>
+     <mkdir dir="build"/>
+   </target>
+
+   <target name="compile">
+      <javac classpathref="all_classpath" srcdir="src" 
+         debug="on" destdir="build"/>
+   </target>
+
+   <target name="list" depends="compile">
+      <java classname="com.acme.contacts.contacts" 
+         classpathref="all_classpath" fork="yes"/>
+   </target>
+
+   <target name="create" depends="compile">
+      <input message="Firstname" addproperty="firstname"/>
+      <input message="Lastname" addproperty="lastname"/>
+      <input message="Country" addproperty="country"/>
+      <input message="City" addproperty="city"/>
+      <input message="Zip" addproperty="zip"/>
+      <java classname="com.acme.contacts.contacts" 
+         classpathref="all_classpath" fork="yes">
+         <arg line="create ${firstname} ${lastname} ${country} ${city} ${zip}"/>
+      </java>
+   </target>
+
+</project>
+     
+

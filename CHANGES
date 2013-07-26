@@ -1,0 +1,251 @@
+Change summary of various releases for BeanKeeper
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+2.6.2
+~~~~~
+- Fixed javax.mail dependency
+- Refactored code, each module into separate package
+- Added schema manager to manage object mapping details
+- Added some tests to improve coverage
+- Fixed all known open bugs
+
+2.6.1
+~~~~~
+- Major refactoring of the code into a service-oriented internal architecture
+- Refactored nodes code to new service-oriented architecture
+- Rewritten node client and server code
+- Removed translator map results, straight map is returned with view queries
+- Result list is now serializable
+- Migrated to hu.netmind.beankeeper package
+
+2.6.0
+~~~~~
+- Migrated from java-cup to javacc for parser generation
+- Migrated from junit to testng
+- Fixed memory leak bug
+- Migrated from ant to maven
+- Modified sources to pass checkstyle audit
+
+2.5.0
+~~~~~
+- Removed ids table, significant performance gain
+- Modified object tracker to hold current values of object,
+  this way, modification times can be lowered
+- Fixed possible deadlock between CommitAndQueryTracker and ModificationTracker
+- Fixed lockEnsureCurrent superflous finder operations
+- Added commons configuration for configuration
+- Added disconnect event to event handler
+- Added remote (potential) change event to event handler
+- Added TransactionalMap
+- Added TypeHandlerTracker getter and SimpleTypeHandler
+- Fixed: 'is null' operator, and object comparing
+- Worked around SQL 3VL
+
+2.4.1
+~~~~~
+- Fixed CommitAndQueryTracker synchronization issue
+- Fixed multiple locking-unlocking bugs
+- Added read-only locking
+- Added original object to ModifyObjectEvent, and helper methods
+- Added operations logging
+- Added management tracker for MBeans
+- Fixed memory leak problem on ObjectTracker
+- Fixed ClassTracker that loaded all class infos on startup
+
+2.4.0
+~~~~~
+- Added object MetaData which contains creation date, end date, id
+- Added lockEnsureCurrent() lock method, which guarantees that the
+  locked object is the current version at the time of the lock.
+- Added hierarchical locks.
+- Updated the documentation.
+
+2.3.3
+~~~~~
+- Added dynamic objects static attributes support
+- Added mixed select syntax
+- Added "in" operator support for persistence objects
+- Added getPersistenceId(Object) to Store.
+- Fixed MySQL for Windows unknown types (again)
+- Modified locking mechanisms
+- Fixed international character handling in query
+- Changed dynamic objects' getPersistenceAttributeTypes() to static
+- Improved transaction statistics
+- Fixed lock leak
+- Modified class hierarchy compilation. Abstract classes which do not
+  have any attributes will be regarded as non-storable
+- Fixed container type handling in dynamic classes
+- Fixed locking of same object with different instances in same transaction
+- Fixed saving bug which saved objects even if unchanged
+- Fixed NPE of locking if object not registered
+- Optimized view selects (do not join superflous tables)
+- Fixed view select result ordering to be unambigous
+- Fixed requirement of constructors for abstract classes
+- Fixed non-selected orderby columns in view selects
+
+2.3.2
+~~~~~
+- Added event delivery system
+- Fixed MySQL "binary" operator issue on Windows
+- Fixed MySQL REAL type
+- Fixed Oracle API problems
+- Improved Oracle paging handling
+- Added connection leak detection
+- Disabled own pool handling, if data source is from JNDI
+- Fixed ListImpl reindexing
+
+2.3.1
+~~~~~
+- Fixed compile problem with JDK6
+- Fixed table attributes lookup problem
+- Fixed LazyList NP bug
+- Added primitive type support for all 'Object'
+  attribute types, and into all container types
+  (Collection, List, Set, Map)
+- Modified List implementation, so it is able to handle
+  duplicate entries, and it keeps the ordering
+  intact when saving and selecting.
+- Added primitive type handling in query statement for
+  lists and object type attributes
+- Java 5 template classes (aka. generics) now work.
+- Fixed mysql boolean type handling
+- Fixed multiple saves of containers in a single transaction
+  (bug caused only the first save in a transaction to complete)
+- Upgraded to LGPL 3
+- Fixed reserved attribute names save
+
+2.3.0.3
+~~~~~~~
+- Improved lazylist iteration performance
+- Fixed HSQLDB double shudown bug
+- Fixed serial generation
+
+2.3.0.2
+~~~~~~~
+- Fixed HSQL driver to create cached tables
+- Fixed memory leak issues
+- Fixed sub-millisecond serial resolution bug
+
+2.3.0.1
+~~~~~~~
+- Fixed hashCode() and equals() dependency.
+
+2.3.0
+~~~~~
+- Dynamic object capability added. It is possible now to
+  define classes dynamically (runtime), and also define the
+  set of attributes to an object dynamically.
+- Extended polymorphism (attributes can be any class or
+  interface, and query statement can be any class or interface too)
+- Fixed: maximal connection count now only indicator, not limit
+- Added LockTracker.
+- Modified save logic: now save is not incremental, but saves all
+  changed attributes compared to the current state of the object.
+- Replaced OnDemandList and OnDemandMap with "lazy" counterparts.
+  This means, member List, Map, and Sets (or any Collection) can have
+  unlimited number of entries. At any given time, there are only a handful
+  objects loaded, but the containers still are fully functional. Paging,
+  and loading is handled transparently.
+- Implemented smart-lazylist. If there would be many statements to execute,
+  then a pre-select is execute to determine which tables/statements will
+  yield non-empty results.
+- Implemented local optimization into lazy list. If there would be many
+  left table terms, it pre-selects which will be used.
+- Improved node status detection (avoid "not ready for service", when possible)
+- Fixed: node does not need a preferred network address, all addresses are used
+- Fixed: node works now without a non-local network interface
+- Fixed: reserved table names were not translated
+- Renamed project to BeanKeeper!
+
+2.2.0
+~~~~~
+- Changed save policy. Only differences/changes are saved.
+- Multiple Store (scalability) support!
+- Fixed: Changes were not detected when an attribute was set to null,
+  but no previous changes were recorded in the Store for that object.
+
+2.1.0
+~~~~~
+- Added HSQLDB support.
+- Added documentation.
+- Updated apidoc.
+- Fixed: excluded inner and anonymous classes from handling.
+- Fixed: transaction listening and recursion avoidance
+- Fixed: historical queries stayed in cache
+
+2.0.1
+~~~~~
+- Separated runtime and compile dependencies
+- Fixed List and Map modification error.
+
+2.0.0
+~~~~~
+- Optimized count statements. Now they're run once (max) on every lazy list.
+- Optimized selecting referred objects.
+- Fixed: exception is thrown if a name conflict is detected in a query
+- Added transaction statistics.
+- Added search result cache.
+- Fixed: library throws exception if it sees an object which has no default 
+  constructor.
+
+1.4.0
+~~~~~
+- Added index handling. Currently all fields will be indexed.
+- Added findSingle() methods, for selecting single objects.
+- Added table view selects.
+
+1.3.5
+~~~~~
+- Fixed: historical select now works with arbitrary resolution,
+  so selects with no date specified will return a lazy list
+  with exactly the database contents currently available.
+- Fixed: transactions are now truly atomic. It is not possible
+  to query an inconsistent state.
+- Fixed: objects are now locked during transactions, concurrent
+  modification will throw exception.
+
+1.3.4
+~~~~~
+- Added historical search capability. A query can be run in the past
+  returning exactly the result it would have returned on given date.
+- On-demand lists and maps now stay unchanged even if there are
+  updates running during iterating over them.
+- Object member lists and maps now handle null values correctly,
+  that is: null values in lists are disallowed, maps handle null values.
+- Removed Derby support (it does not have necessary features)
+- Fixed: null parameters are now handled correctly
+
+1.3.3
+~~~~~
+
+- Added persistenceId support. When naming an attribute persistenceId (long),
+  it's value will be always set with the object's unique id inside
+  the library.
+- Added Apache Derby support
+- Database reserved words now can be used as attributes, the library
+  will escape them
+
+1.3.2
+~~~~~
+
+- Added 'ilike' operator
+- Added special keyword 'now' to the query language, which can be used
+  to compare with dates, and represents the current time/date.
+- Fixed: List and Maps did not stay null
+- Fixed: classes of same name but different packages were mapped to same
+  table
+- Fixed: operators <= and >= where left out of syntax, now added.
+- Fixed: polymorphic queries for attributes in superclass did not work
+
+1.3.1
+~~~~~
+
+- Fixed: orderby syntax was not like the other terms
+- Fixed: now one can order by attributes not in the selected class
+- Added byte array support
+
+1.3.0
+~~~~~
+
+- Added polymorphism support
+
